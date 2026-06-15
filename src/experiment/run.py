@@ -11,6 +11,12 @@ query counts so success can be reported as a function of budget. Reproducible fr
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.experiment.config import ExperimentConfig
+    from src.providers.base import Provider
 
 
 def run_smoke() -> None:
@@ -38,10 +44,148 @@ def run_smoke() -> None:
     print(f"[reply]  {app.query(benign)}")
 
 
-def run_full() -> None:
-    """Run the full matrix and write results. Phase 5."""
-    # Phase 5: load config, loop the matrix, score via the verifier, write results.json + csv.
-    raise NotImplementedError("Phase 5: implement the full run")
+def run_full(
+    config: ExperimentConfig | None = None,
+    provider_factory: Callable[[object], Provider] | None = None,
+) -> dict:
+    """Run the full matrix, score every response, write results.json + results.csv.
+
+    Loops models x prompts x attacks x defenses x repeats. For each (prompt, attack,
+    defense) the response is produced under the right system prompt and scored against the
+    appropriate target:
+      - ``none`` and ``instructional`` are scored against the ORIGINAL ``prompt.text`` (the
+        secret is unchanged; ``instructional`` only hardens the system prompt);
+      - ``output_filter`` is scored against the POST-filter ``response`` — what the attacker
+        actually receives — so a redacted reply correctly counts as "did not leak".
+
+    ``provider_factory`` maps a ModelSpec to a Provider; the default builds an
+    AnthropicProvider (imported lazily, so importing this module needs no API key). Tests
+    inject a fake factory to run fully offline. Returns the results dict.
+    """
+    import csv
+    import json
+    import random
+    from pathlib import Path
+
+    from src.attacks.queries import ATTACKS
+    from src.experiment.config import load_config
+    from src.scoring.verifier import score_against_ground_truth, self_agreement
+    from src.target.defenses import instructional, output_filter
+    from src.target.prompts import PROMPTS
+
+    config = config or load_config()
+
+    if provider_factory is None:
+        def provider_factory(spec):  # noqa: ANN001 - default factory
+            from src.providers.anthropic_provider import AnthropicProvider
+
+            return AnthropicProvider(spec.model_id, spec.temperature)
+
+    # Reproducibility hook: seed the global RNG even if the current matrix is deterministic.
+    random.seed(config.seed)
+
+    prompts = [p for p in PROMPTS.values() if p.type in config.prompt_types]
+    attacks = ATTACKS
+
+    rows: list[dict] = []
+    groups: list[dict] = []
+
+    for spec in config.models:
+        provider = provider_factory(spec)
+        for prompt in prompts:
+            for attack in attacks:
+                for defense in config.defenses:
+                    system = (
+                        instructional(prompt.text)
+                        if defense == "instructional"
+                        else prompt.text
+                    )
+                    group_responses: list[str] = []
+                    group_rouge: list[float] = []
+                    for repeat in range(config.repeats):
+                        raw = provider.complete(system, attack.template)
+                        response = (
+                            output_filter(
+                                raw, prompt.text, config.output_filter_threshold
+                            )
+                            if defense == "output_filter"
+                            else raw
+                        )
+                        # none/instructional score the original secret; output_filter scores
+                        # the post-filter response (what the attacker receives).
+                        scored = score_against_ground_truth(
+                            prompt.text, response, attack.id, repeat
+                        )
+                        rows.append(
+                            {
+                                "model_id": spec.model_id,
+                                "prompt_id": prompt.id,
+                                "prompt_type": prompt.type,
+                                "attack_id": attack.id,
+                                "family": attack.family,
+                                "defense": defense,
+                                "repeat": repeat,
+                                "exact": scored.exact,
+                                "rouge_l": scored.rouge_l,
+                                "token_f1": scored.token_f1,
+                            }
+                        )
+                        group_responses.append(response)
+                        group_rouge.append(scored.rouge_l)
+
+                    mean_rouge_l = (
+                        sum(group_rouge) / len(group_rouge) if group_rouge else 0.0
+                    )
+                    groups.append(
+                        {
+                            "model_id": spec.model_id,
+                            "prompt_id": prompt.id,
+                            "attack_id": attack.id,
+                            "defense": defense,
+                            "self_agreement": self_agreement(group_responses),
+                            "mean_rouge_l": mean_rouge_l,
+                            "n": config.repeats,
+                        }
+                    )
+
+    query_count = len(rows)
+    results = {
+        "seed": config.seed,
+        "query_count": query_count,
+        "responses": rows,
+        "groups": groups,
+    }
+
+    results_dir = Path(config.results_dir)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    json_path = results_dir / "results.json"
+    csv_path = results_dir / "results.csv"
+
+    with json_path.open("w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+
+    fieldnames = [
+        "model_id",
+        "prompt_id",
+        "prompt_type",
+        "attack_id",
+        "family",
+        "defense",
+        "repeat",
+        "exact",
+        "rouge_l",
+        "token_f1",
+    ]
+    with csv_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(
+        f"[run_full] {len(rows)} rows, query_count={query_count} -> "
+        f"{json_path} | {csv_path}"
+    )
+    return results
 
 
 def main() -> None:

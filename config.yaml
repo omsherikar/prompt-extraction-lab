@@ -1,0 +1,52 @@
+# Experiment configuration. Everything that changes a run lives here so results
+# are reproducible from (config.yaml + seed). See src/experiment/config.py for the
+# schema and validation.
+
+# Reproducibility. A fixed seed makes the whole matrix re-runnable.
+seed: 1729
+
+# Models to test. Each is (provider, model_id, temperature). Testing 2-3 models is
+# what supports the "extractability varies across models" claim, but one is enough
+# to ship. OpenAI entries require OPENAI_API_KEY and the [openai] extra.
+models:
+  - provider: anthropic
+    model_id: claude-haiku-4-5-20251001
+    temperature: 0.0
+  # - provider: anthropic
+  #   model_id: claude-sonnet-4-6
+  #   temperature: 0.0
+  # - provider: openai
+  #   model_id: gpt-4o-mini
+  #   temperature: 0.0
+
+# Query budget: how many attack queries we allow per (model, prompt). Success is
+# reported as a function of this budget in the post.
+query_budget: 20
+
+# How many times each attack is repeated. k>=3 is required for the no-ground-truth
+# self-agreement verifier (Phase 3) and for variance estimates.
+repeats: 3
+
+# Text normalization applied before matching. Each step is explicit and tested,
+# because match rates are sensitive to these choices.
+normalization:
+  lowercase: true
+  collapse_whitespace: true
+  strip: true
+
+# Which prompt structural types to include (defined in src/target/prompts.py).
+prompt_types: [direct, role, in_context]
+
+# Defenses to evaluate. Each (prompt, attack) is run under every enabled defense.
+defenses:
+  - none
+  - instructional
+  - output_filter
+
+# Threshold (Rouge-L recall) above which the output_filter redacts a response.
+output_filter_threshold: 0.5
+
+# Output locations (relative to repo root).
+output:
+  results_dir: data/results
+  transcripts_dir: data/transcripts

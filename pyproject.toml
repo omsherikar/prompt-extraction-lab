@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prompt-extraction-lab"
+version = "0.1.0"
+description = "A measured study of system prompt extraction on prompts we control, with ground-truth scoring."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "omsherikar" }]
+
+# Keep dependencies light (see PLAN.md). Rouge-L is implemented in-repo (no rouge-score
+# dependency) so the metric is fully under our control and unit-testable.
+dependencies = [
+    "anthropic>=0.40",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "pandas>=2.0",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+# Optional second backend, only needed to strengthen the cross-model claim.
+openai = ["openai>=1.40"]
+# Developer tooling.
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11"]
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+ignore_missing_imports = true

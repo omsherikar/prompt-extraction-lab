@@ -1,0 +1,34 @@
+# --- Secrets ---
+.env
+.env.local
+*.key
+
+# --- Experiment artifacts ---
+# Raw transcripts can be large and may contain full model responses; never commit.
+# We commit only scored results (data/results/), not raw transcripts.
+data/transcripts/*
+!data/transcripts/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# --- Tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -85,6 +85,8 @@ def run_full(
     import random
     from pathlib import Path
 
+    from dotenv import load_dotenv
+
     from src.attacks.queries import ATTACKS
     from src.experiment.config import load_config
     from src.scoring.normalize import NormalizationOptions
@@ -92,6 +94,10 @@ def run_full(
     from src.target.defenses import instructional, output_filter
     from src.target.prompts import PROMPTS
 
+    # Load .env so a key placed there (e.g. OLLAMA_API_KEY, per the quickstart) is picked up
+    # on `make run`, not just on `--smoke`. Without this, the provider silently falls back to
+    # a local server and a first run fails with a confusing connection error.
+    load_dotenv()
     config = config or load_config()
 
     # Bridge the config's normalization block into the scoring options, so the filter and the

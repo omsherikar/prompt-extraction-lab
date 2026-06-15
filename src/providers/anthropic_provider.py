@@ -1,4 +1,4 @@
-"""Anthropic backend (primary).
+"""Anthropic backend (optional, paid — the API is separate from a Claude subscription).
 
 Implements the Anthropic Messages API. The system prompt goes in the top-level `system`
 field; the attack (or benign) query goes in as the user message. The API key is read from

@@ -34,8 +34,9 @@ cannot tell a real recovery from a plausible hallucination.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"          # add ",openai" for the optional second backend
 
-# 2. Configure secrets
-cp .env.example .env             # then fill in ANTHROPIC_API_KEY
+# 2. Configure secrets (the default config uses Ollama — no paid API key needed)
+cp .env.example .env             # then fill in OLLAMA_API_KEY (free, ollama.com/settings/keys)
+                                 # or leave it unset to use a local Ollama server
 
 # 3. Smoke test: one prompt, one query, one model
 python -m src.experiment.run --smoke
@@ -51,7 +52,7 @@ See `make help` for the full set of commands.
 ```
 src/
   target/      the app we control + the ground-truth prompts + defenses
-  providers/   pluggable model backends (Anthropic, optional OpenAI)
+  providers/   pluggable model backends (Ollama default; Anthropic; optional OpenAI)
   attacks/     library of cited extraction queries + the runner
   scoring/     normalization, metrics, and the ground-truth / self-agreement verifier
   experiment/  config loading, full-matrix orchestration, aggregation

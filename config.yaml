@@ -9,16 +9,23 @@ seed: 1729
 # what supports the "extractability varies across models" claim, but one is enough
 # to ship. OpenAI entries require OPENAI_API_KEY and the [openai] extra.
 models:
-  - provider: anthropic
-    model_id: claude-haiku-4-5-20251001
+  # Ollama Cloud (free tier) — set OLLAMA_API_KEY in .env. Pick any cloud model from
+  # https://ollama.com/search?c=cloud (use its -cloud tag). gpt-oss:120b-cloud is strong;
+  # gpt-oss:20b is lighter on the free GPU-time budget for a first run.
+  - provider: ollama
+    model_id: gpt-oss:120b-cloud
     temperature: 0.0
-  # - provider: anthropic
-  #   model_id: claude-sonnet-4-6
+  # Local Ollama instead: leave OLLAMA_API_KEY unset and use a pulled local tag, e.g.:
+  # - provider: ollama
+  #   model_id: llama3.1:8b
   #   temperature: 0.0
-  # - provider: openai
-  #   model_id: gpt-4o-mini
+  # Anthropic (needs a paid ANTHROPIC_API_KEY, separate from a Claude subscription):
+  # - provider: anthropic
+  #   model_id: claude-haiku-4-5-20251001
   #   temperature: 0.0
 
+# The full matrix is ~(models x prompts x attacks x defenses x repeats) live calls
+# (~972 on these defaults). Trim `repeats` or `prompt_types` to stay inside the free tier.
 # Query budget: how many attack queries we allow per (model, prompt). Success is
 # reported as a function of this budget in the post.
 query_budget: 20

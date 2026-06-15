@@ -19,22 +19,36 @@ if TYPE_CHECKING:
     from src.providers.base import Provider
 
 
+def build_provider(spec: ModelSpec) -> Provider:
+    """Construct the Provider for a ModelSpec, dispatching on ``spec.provider``.
+
+    Imports are lazy so importing this module needs no provider SDK, API key, or network.
+    """
+    if spec.provider == "anthropic":
+        from src.providers.anthropic_provider import AnthropicProvider
+
+        return AnthropicProvider(spec.model_id, spec.temperature)
+    if spec.provider == "ollama":
+        from src.providers.ollama_provider import OllamaProvider
+
+        return OllamaProvider(spec.model_id, spec.temperature)
+    raise SystemExit(
+        f"unknown provider: {spec.provider!r} (expected 'anthropic' or 'ollama')"
+    )
+
+
 def run_smoke(config_path: str = "config.yaml") -> None:
     """One prompt, one query, one model; print the response. Phase 0 acceptance."""
     from dotenv import load_dotenv
 
     from src.experiment.config import load_config
-    from src.providers.anthropic_provider import AnthropicProvider
     from src.target.app import TargetApp
     from src.target.prompts import PROMPTS
 
     load_dotenv()
     config = load_config(config_path)
     model = config.models[0]
-    if model.provider != "anthropic":
-        raise SystemExit(f"smoke path supports the anthropic provider; got {model.provider!r}")
-
-    provider = AnthropicProvider(model_id=model.model_id, temperature=model.temperature)
+    provider = build_provider(model)
     prompt = next(iter(PROMPTS.values()))
     app = TargetApp(prompt=prompt, provider=provider)
 
@@ -58,9 +72,10 @@ def run_full(
       - ``output_filter`` is scored against the POST-filter ``response`` — what the attacker
         actually receives — so a redacted reply correctly counts as "did not leak".
 
-    ``provider_factory`` maps a ModelSpec to a Provider; the default builds an
-    AnthropicProvider (imported lazily, so importing this module needs no API key). Tests
-    inject a fake factory to run fully offline. Returns the results dict.
+    ``provider_factory`` maps a ModelSpec to a Provider; the default is ``build_provider``,
+    which dispatches on ``spec.provider`` and imports the backend lazily, so importing this
+    module needs no API key. Tests inject a fake factory to run fully offline. Returns the
+    results dict.
 
     Writes only scored results (results.json + results.csv). Raw per-response transcripts are
     not persisted here; the standalone Phase 2 runner is the transcript-capture tool.
@@ -70,6 +85,8 @@ def run_full(
     import random
     from pathlib import Path
 
+    from dotenv import load_dotenv
+
     from src.attacks.queries import ATTACKS
     from src.experiment.config import load_config
     from src.scoring.normalize import NormalizationOptions
@@ -77,6 +94,10 @@ def run_full(
     from src.target.defenses import instructional, output_filter
     from src.target.prompts import PROMPTS
 
+    # Load .env so a key placed there (e.g. OLLAMA_API_KEY, per the quickstart) is picked up
+    # on `make run`, not just on `--smoke`. Without this, the provider silently falls back to
+    # a local server and a first run fails with a confusing connection error.
+    load_dotenv()
     config = config or load_config()
 
     # Bridge the config's normalization block into the scoring options, so the filter and the
@@ -88,10 +109,7 @@ def run_full(
     )
 
     if provider_factory is None:
-        def provider_factory(spec):  # noqa: ANN001 - default factory
-            from src.providers.anthropic_provider import AnthropicProvider
-
-            return AnthropicProvider(spec.model_id, spec.temperature)
+        provider_factory = build_provider
 
     # Reproducibility hook: seed the global RNG even if the current matrix is deterministic.
     random.seed(config.seed)

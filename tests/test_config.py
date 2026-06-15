@@ -44,8 +44,8 @@ def test_load_real_config_scalars() -> None:
 def test_load_real_config_models_parsed_into_modelspec() -> None:
     """The first models entry is parsed into a ModelSpec with the expected provider/model.
 
-    Requirement: models is a list of ModelSpec; models[0] is
-    (provider='anthropic', model_id='claude-haiku-4-5-20251001', temperature=0.0).
+    Requirement: models is a list of ModelSpec; models[0] is the Ollama primary
+    (provider='ollama', model_id='gpt-oss:120b-cloud', temperature=0.0).
     """
     cfg = load_config(str(REAL_CONFIG))
 
@@ -53,8 +53,8 @@ def test_load_real_config_models_parsed_into_modelspec() -> None:
     assert len(cfg.models) >= 1
     first = cfg.models[0]
     assert isinstance(first, ModelSpec)
-    assert first.provider == "anthropic"
-    assert first.model_id == "claude-haiku-4-5-20251001"
+    assert first.provider == "ollama"
+    assert first.model_id == "gpt-oss:120b-cloud"
     assert first.temperature == 0.0
 
 

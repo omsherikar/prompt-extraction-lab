@@ -1,27 +1,30 @@
 .DEFAULT_GOAL := help
 .PHONY: help install smoke run aggregate figures test lint typecheck fmt clean
 
+# Use python3 by default (many systems have no bare `python`). Override: make PYTHON=python run
+PYTHON ?= python3
+
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install the package with dev extras
-	pip install -e ".[dev]"
+	$(PYTHON) -m pip install -e ".[dev]"
 
 smoke: ## One prompt, one query, one model (Phase 0 acceptance)
-	python -m src.experiment.run --smoke
+	$(PYTHON) -m src.experiment.run --smoke
 
 run: ## Run the full experiment matrix
-	python -m src.experiment.run
+	$(PYTHON) -m src.experiment.run
 
 aggregate: ## Build summary tables from results.json
-	python -m src.experiment.aggregate
+	$(PYTHON) -m src.experiment.aggregate
 
 figures: ## Regenerate figures into blog/figures/
-	python -m src.viz.figures
+	$(PYTHON) -m src.viz.figures
 
 test: ## Run the test suite
-	pytest
+	$(PYTHON) -m pytest
 
 lint: ## Lint with ruff
 	ruff check src tests

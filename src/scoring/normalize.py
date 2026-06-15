@@ -15,8 +15,9 @@ from dataclasses import dataclass
 class NormalizationOptions:
     """Which normalization steps to apply.
 
-    Mirrors config.yaml's ``normalization`` block; the bridge from
-    ``ExperimentConfig.normalization`` into this type is wired in Phase 5.
+    Mirrors config.yaml's ``normalization`` block; ``run_full`` bridges
+    ``ExperimentConfig.normalization`` into this type and threads it through scoring and the
+    output filter, so a run is reproducible from config + seed.
     """
 
     lowercase: bool = True

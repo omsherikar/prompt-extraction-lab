@@ -61,6 +61,9 @@ def run_full(
     ``provider_factory`` maps a ModelSpec to a Provider; the default builds an
     AnthropicProvider (imported lazily, so importing this module needs no API key). Tests
     inject a fake factory to run fully offline. Returns the results dict.
+
+    Writes only scored results (results.json + results.csv). Raw per-response transcripts are
+    not persisted here; the standalone Phase 2 runner is the transcript-capture tool.
     """
     import csv
     import json
@@ -69,11 +72,20 @@ def run_full(
 
     from src.attacks.queries import ATTACKS
     from src.experiment.config import load_config
+    from src.scoring.normalize import NormalizationOptions
     from src.scoring.verifier import score_against_ground_truth, self_agreement
     from src.target.defenses import instructional, output_filter
     from src.target.prompts import PROMPTS
 
     config = config or load_config()
+
+    # Bridge the config's normalization block into the scoring options, so the filter and the
+    # scoring share one config-driven definition of normalization (reproducible from config).
+    opts = NormalizationOptions(
+        lowercase=config.normalization.lowercase,
+        collapse_whitespace=config.normalization.collapse_whitespace,
+        strip=config.normalization.strip,
+    )
 
     if provider_factory is None:
         def provider_factory(spec):  # noqa: ANN001 - default factory
@@ -117,7 +129,7 @@ def run_full(
                         raw = provider.complete(system, attack.template)
                         response = (
                             output_filter(
-                                raw, prompt.text, config.output_filter_threshold
+                                raw, prompt.text, config.output_filter_threshold, opts
                             )
                             if defense == "output_filter"
                             else raw
@@ -125,7 +137,7 @@ def run_full(
                         # none/instructional score the original secret; output_filter scores
                         # the post-filter response (what the attacker receives).
                         scored = score_against_ground_truth(
-                            prompt.text, response, attack.id, repeat
+                            prompt.text, response, attack.id, repeat, opts
                         )
                         rows.append(
                             {

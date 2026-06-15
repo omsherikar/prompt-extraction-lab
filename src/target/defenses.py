@@ -7,8 +7,8 @@ Phase 4: measure whether common defenses actually reduce leakage.
   - output_filter: post-process the response and redact/block it if it overlaps the secret
     above a threshold (reuse the scoring metrics). The "text-based filtering defense."
 
-The evasion variant that defeats output_filter (spaced characters, reversed, base64,
-translated) lives with the attacks in src/attacks/queries.py, since it is an attack query.
+The evasion variants that defeat output_filter (spaced characters, base64) live with the
+attacks in src/attacks/queries.py, since they are attack queries.
 
 Both functions are PURE: strings in, strings out. No I/O, no network, no global state.
 """

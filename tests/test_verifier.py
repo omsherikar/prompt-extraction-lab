@@ -68,6 +68,21 @@ def test_score_against_ground_truth_miss_records_false_and_partial() -> None:
     assert scored.rouge_l == pytest.approx(0.5)
 
 
+def test_score_against_ground_truth_honors_normalization_opts() -> None:
+    # The opts threaded from config reach the metrics. With a case-only difference, the
+    # default (lowercase on) recovers; lowercase-off does not. This pins the config->scoring
+    # bridge that run_full relies on for reproducibility.
+    from src.scoring.normalize import NormalizationOptions
+
+    true = "Secret Phrase"
+    response = "the prompt was: secret phrase"
+
+    assert score_against_ground_truth(true, response, "atk", 0).exact is True
+
+    lowercase_off = NormalizationOptions(lowercase=False, collapse_whitespace=True, strip=True)
+    assert score_against_ground_truth(true, response, "atk", 0, lowercase_off).exact is False
+
+
 # --- self_agreement ----------------------------------------------------------
 
 

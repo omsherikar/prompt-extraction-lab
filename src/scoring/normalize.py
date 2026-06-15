@@ -3,8 +3,6 @@
 Match rates are sensitive to normalization, so every step is explicit, toggleable from
 config, and tested. No silent normalization anywhere else in the codebase: all matching
 goes through this module.
-
-Phase 3: implement.
 """
 
 from __future__ import annotations
@@ -15,7 +13,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class NormalizationOptions:
-    """Which normalization steps to apply, read from config.yaml."""
+    """Which normalization steps to apply.
+
+    Mirrors config.yaml's ``normalization`` block; the bridge from
+    ``ExperimentConfig.normalization`` into this type is wired in Phase 5.
+    """
 
     lowercase: bool = True
     collapse_whitespace: bool = True

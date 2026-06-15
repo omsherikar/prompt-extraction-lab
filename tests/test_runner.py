@@ -64,7 +64,7 @@ def _attacks() -> list[Attack]:
     ]
 
 
-def _transcript_path(transcripts_dir, app: TargetApp):
+def _transcript_path(transcripts_dir):
     """The single .jsonl file the runner should have written under transcripts_dir."""
     files = list(transcripts_dir.glob("*.jsonl"))
     assert len(files) == 1, f"expected exactly one transcript, found {files}"
@@ -120,7 +120,7 @@ def test_transcript_written_with_one_line_per_record(tmp_path) -> None:
 
     run_attacks(app, attacks, repeat, transcripts_dir=str(tmp_path))
 
-    path = _transcript_path(tmp_path, app)
+    path = _transcript_path(tmp_path)
     lines = path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == len(attacks) * repeat
     # Every line is a standalone JSON object (true JSONL, not a JSON array).
@@ -133,7 +133,7 @@ def test_transcript_path_keyed_by_model_and_prompt(tmp_path) -> None:
 
     run_attacks(app, _attacks(), repeat=1, transcripts_dir=str(tmp_path))
 
-    path = _transcript_path(tmp_path, app)
+    path = _transcript_path(tmp_path)
     assert app.provider.model_id in path.name
     assert app.prompt.id in path.name
     assert path.suffix == ".jsonl"
@@ -146,7 +146,7 @@ def test_transcript_records_carry_required_metadata(tmp_path) -> None:
 
     run_attacks(app, attacks, repeat, transcripts_dir=str(tmp_path))
 
-    path = _transcript_path(tmp_path, app)
+    path = _transcript_path(tmp_path)
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     by_id = {a.id: a for a in attacks}
 
@@ -166,7 +166,7 @@ def test_runner_does_no_scoring(tmp_path) -> None:
 
     run_attacks(app, _attacks(), repeat=2, transcripts_dir=str(tmp_path))
 
-    path = _transcript_path(tmp_path, app)
+    path = _transcript_path(tmp_path)
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     for rec in records:
         # The transcript must hold exactly the raw metadata: no metric fields, and nothing

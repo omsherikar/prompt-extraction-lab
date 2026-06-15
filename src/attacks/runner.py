@@ -1,9 +1,9 @@
 """The attack runner.
 
-Phase 2: given a TargetApp and the attack list, run every attack `repeat=k` times, capture
-(attack_id, repeat, model_response), and persist raw transcripts to data/transcripts/. Record
-query counts so the post can report success against a budget. The runner does no scoring;
-scoring is Phase 3 and lives in src/scoring/.
+Given a TargetApp and the attack list, runs every attack `repeat=k` times, captures
+(attack_id, repeat, model_response), and persists raw transcripts to data/transcripts/. The
+returned list length is the total query count, so the post can report success against a
+budget. The runner does no scoring; scoring is Phase 3 and lives in src/scoring/.
 """
 
 from __future__ import annotations
@@ -40,7 +40,14 @@ def _sanitize(component: str) -> str:
 
 
 def _transcript_path(transcripts_dir: str, model_id: str, prompt_id: str) -> Path:
-    """Deterministic transcript path keyed by model + prompt id."""
+    """Deterministic transcript path keyed by model + prompt id.
+
+    Phase 5 note: when defenses land, the same (model, prompt) is run under each defense
+    (none / instructional / output_filter), so this path must then ALSO key on the defense
+    id (e.g. ``{model_id}__{prompt_id}__{defense}.jsonl``) or each defense run will overwrite
+    the previous one's transcript. Undefended Phase 2 scope is single-transcript, so the
+    current key is fine for now.
+    """
     name = f"{_sanitize(model_id)}__{_sanitize(prompt_id)}.jsonl"
     return Path(transcripts_dir) / name
 

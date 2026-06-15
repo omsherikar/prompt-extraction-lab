@@ -14,8 +14,6 @@ This is the piece that makes the post original. Two modes:
 INTEGRITY INVARIANT: the self-agreement score must be computed ONLY from the extractions
 themselves. The true prompt must never touch that path. If it does, the headline result is
 invalid. Tests must guard this.
-
-Phase 3: implement, test-first.
 """
 
 from __future__ import annotations

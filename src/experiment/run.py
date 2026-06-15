@@ -226,7 +226,11 @@ def run_full(
         # run but must NOT lose the rows already collected. Capture it and fall through to the
         # `finally` write; do NOT re-raise — return the partial results gracefully.
         # KeyboardInterrupt is deliberately NOT caught here, so Ctrl-C propagates — but the
-        # `finally` still writes the partial results before it does.
+        # `finally` still writes the partial results first (with complete=False and error=None,
+        # since this except never ran, which is the distinguishable "interrupted" signal).
+        # The error string holds the provider's exception message, which carries no API key by
+        # design: OllamaProvider wraps urllib errors to host+status, and the Anthropic SDK does
+        # not echo the key.
         complete = False
         error = f"{type(exc).__name__}: {exc}"
     finally:
@@ -238,7 +242,12 @@ def run_full(
             "complete": complete,
             "error": error,
         }
-        _write(results)
+        try:
+            _write(results)
+        except OSError as write_exc:
+            # A write failure must NOT mask the real abort cause: surface it as a warning and
+            # still return the in-memory results rather than raising out of `finally`.
+            print(f"[run_full] WARNING: could not write results to {results_dir}: {write_exc}")
 
     if complete:
         print(

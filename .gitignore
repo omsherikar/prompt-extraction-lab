@@ -8,6 +8,8 @@
 # We commit only scored results (data/results/), not raw transcripts.
 data/transcripts/*
 !data/transcripts/.gitkeep
+# Run logs (the scored results.json/csv are the committed artifact, not the log).
+data/results/*.log
 
 # --- Python ---
 __pycache__/

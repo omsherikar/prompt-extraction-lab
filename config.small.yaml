@@ -1,0 +1,34 @@
+# Small first run, sized for the Ollama Cloud free tier (~252 live calls):
+#   direct prompts (3) x 14 attacks x 3 defenses x 2 repeats.
+# Exercises leakage, the full defense comparison, and the self-agreement metric, at ~1/4
+# of the full matrix. Run with:  python3 -m src.experiment.run --config config.small.yaml
+seed: 1729
+
+models:
+  - provider: ollama
+    model_id: gpt-oss:120b-cloud
+    temperature: 0.0
+
+query_budget: 20
+
+# k>=2 keeps the no-ground-truth self-agreement metric meaningful while halving the calls.
+repeats: 2
+
+normalization:
+  lowercase: true
+  collapse_whitespace: true
+  strip: true
+
+# Only the `direct` prompts for the first run (3 of the 9), to stay inside the free tier.
+prompt_types: [direct]
+
+defenses:
+  - none
+  - instructional
+  - output_filter
+
+output_filter_threshold: 0.5
+
+output:
+  results_dir: data/results
+  transcripts_dir: data/transcripts

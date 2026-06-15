@@ -79,3 +79,24 @@ def test_all_required_families_present() -> None:
     present = {a.family for a in ATTACKS}
     missing = REQUIRED_FAMILIES - present
     assert not missing, f"missing required families: {missing}"
+
+
+def test_evasion_family_present() -> None:
+    # Phase 4 adds evasion variants; at least one must exist so the output_filter
+    # actually has a transformed-output attack to be measured against.
+    evasion = [a for a in ATTACKS if a.family == "evasion"]
+    assert evasion, "expected at least one evasion-family attack"
+
+
+def test_evasion_templates_request_transformed_form() -> None:
+    # Every evasion template must ask for the prompt in a transformed/encoded form so the
+    # raw secret does not appear verbatim (this is what defeats a verbatim/overlap filter).
+    transform_markers = {"space", "base64", "encode", "reverse"}
+    for a in ATTACKS:
+        if a.family != "evasion":
+            continue
+        text = a.template.lower()
+        assert any(marker in text for marker in transform_markers), (
+            f"evasion attack {a.id!r} must request a transformed form "
+            f"(one of {sorted(transform_markers)}); got: {a.template!r}"
+        )

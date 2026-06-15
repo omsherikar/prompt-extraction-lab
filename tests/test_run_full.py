@@ -70,6 +70,27 @@ def fake_factory(spec: ModelSpec) -> LeakingFakeProvider:
     return LeakingFakeProvider(spec.model_id, spec.temperature)
 
 
+class FailingFakeProvider(Provider):
+    """Offline provider that succeeds N times then raises — simulates a free-tier cutoff.
+
+    Returns a canned string for the first ``fail_after`` calls (tracked by an instance
+    counter), then raises ``RuntimeError`` on the next one, mimicking a provider that aborts
+    mid-run when the GPU-time / free-tier limit is hit. Lets ``run_full``'s crash-safe
+    partial-write path be exercised fully offline.
+    """
+
+    def __init__(self, model_id: str, temperature: float, fail_after: int) -> None:
+        super().__init__(model_id, temperature)
+        self.fail_after = fail_after
+        self.calls = 0
+
+    def complete(self, system_prompt: str, user_message: str) -> str:
+        if self.calls >= self.fail_after:
+            raise RuntimeError("simulated free-tier cutoff")
+        self.calls += 1
+        return "ok"
+
+
 def _make_config(tmp_path) -> ExperimentConfig:
     """A small, fully-specified config writing under tmp_path (real dirs untouched)."""
     return ExperimentConfig(
@@ -93,11 +114,15 @@ def _selected_prompts(cfg: ExperimentConfig):
 def test_writes_results_json_and_csv(tmp_path) -> None:
     cfg = _make_config(tmp_path)
 
-    run_full(cfg, provider_factory=fake_factory)
+    results = run_full(cfg, provider_factory=fake_factory)
 
     results_dir = tmp_path / "results"
     assert (results_dir / "results.json").is_file()
     assert (results_dir / "results.csv").is_file()
+
+    # A fully-successful run is flagged complete with no error.
+    assert results["complete"] is True
+    assert results["error"] is None
 
 
 def test_row_count_matches_full_matrix_and_query_count(tmp_path) -> None:
@@ -208,3 +233,49 @@ def test_groups_present_and_bounded(tmp_path) -> None:
         assert 0.0 <= g["self_agreement"] <= 1.0
         assert 0.0 <= g["mean_rouge_l"] <= 1.0
         assert g["n"] == cfg.repeats
+
+
+def test_partial_results_saved_when_provider_fails_midrun(tmp_path) -> None:
+    """A mid-run provider failure aborts gracefully and keeps the completed rows.
+
+    Simulates a free-tier cutoff: the provider succeeds N times then raises RuntimeError.
+    ``run_full`` must NOT re-raise, must flag the run incomplete with the error captured, and
+    must still write results.json + results.csv containing exactly the N rows produced before
+    the failure (the in-progress group's prior repeats are kept; the failing call's row is not
+    appended).
+    """
+    cfg = _make_config(tmp_path)
+
+    # The full matrix is far larger than N, so the failure lands mid-run, not at the very end.
+    n = 5
+
+    def failing_factory(spec: ModelSpec) -> FailingFakeProvider:
+        return FailingFakeProvider(spec.model_id, spec.temperature, fail_after=n)
+
+    # Must return gracefully (no exception propagates).
+    results = run_full(cfg, provider_factory=failing_factory)
+
+    assert results["complete"] is False
+    assert results["error"] is not None
+    assert "RuntimeError" in results["error"]
+    assert "cutoff" in results["error"]
+
+    # Exactly the N successful calls are recorded (the failing call appends nothing).
+    assert results["query_count"] == n
+    assert len(results["responses"]) == n
+
+    # results.json exists, re-loads to N responses, and is flagged incomplete.
+    json_path = tmp_path / "results" / "results.json"
+    assert json_path.is_file()
+    with json_path.open(encoding="utf-8") as f:
+        on_disk = json.load(f)
+    assert len(on_disk["responses"]) == n
+    assert on_disk["complete"] is False
+    assert on_disk["error"] is not None
+
+    # results.csv exists with exactly N data rows (header + N rows).
+    csv_path = tmp_path / "results" / "results.csv"
+    assert csv_path.is_file()
+    with csv_path.open(encoding="utf-8", newline="") as f:
+        data_rows = list(csv.DictReader(f))
+    assert len(data_rows) == n

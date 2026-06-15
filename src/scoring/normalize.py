@@ -9,6 +9,7 @@ Phase 3: implement.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -22,7 +23,21 @@ class NormalizationOptions:
 
 
 def normalize(text: str, opts: NormalizationOptions) -> str:
-    """Apply the enabled normalization steps, in a fixed, documented order."""
-    # Phase 3: lowercase -> collapse internal whitespace runs to single spaces -> strip ends,
-    # each gated by opts. Order matters and must be stable.
-    raise NotImplementedError("Phase 3: implement normalize")
+    """Apply the enabled normalization steps, in this fixed order.
+
+    This is the single normalization chokepoint for the whole repo; there is no silent
+    normalization anywhere else. Each step is gated by its flag in ``opts``, and the order
+    is stable and load-bearing (collapse before strip lets a whitespace-only string reduce
+    to a single space and then to empty):
+
+    1. ``lowercase``: lowercase the text.
+    2. ``collapse_whitespace``: collapse every run of whitespace to a single space.
+    3. ``strip``: strip leading and trailing whitespace.
+    """
+    if opts.lowercase:
+        text = text.lower()
+    if opts.collapse_whitespace:
+        text = re.sub(r"\s+", " ", text)
+    if opts.strip:
+        text = text.strip()
+    return text

@@ -130,3 +130,47 @@ def test_empty_responses_does_not_crash(tmp_path) -> None:
     # No figures were written.
     if out_dir.exists():
         assert list(out_dir.glob("*.png")) == []
+
+
+def test_two_model_scatter_renders(tmp_path) -> None:
+    # The per-model scatter: the synthetic fixture spans two model_ids ("m1", "m2"), each with
+    # >= 2 groups and >= 2 distinct self_agreement x-values, so each model gets its own fit line
+    # and its own Pearson r in the legend. This must render without error and write a non-empty
+    # scatter PNG (offline, Agg).
+    out_dir = tmp_path / "figs"
+    paths = generate_figures(_write_results(tmp_path), str(out_dir))
+
+    scatter = str(out_dir / "self_agreement_scatter.png")
+    assert scatter in paths
+    assert os.path.exists(scatter)
+    assert os.path.getsize(scatter) > 0
+
+
+def test_single_model_scatter_renders(tmp_path) -> None:
+    # The per-model logic must also work for ONE model: one colored cloud, one line, that model's
+    # r in its legend label. Use only the "m1" groups so the scatter sees a single model_id.
+    out_dir = tmp_path / "figs"
+    single_model_groups = [
+        {"model_id": "m1", "prompt_id": "p1", "attack_id": "a1", "defense": "none",
+         "self_agreement": 0.2, "mean_rouge_l": 0.1, "n": 2},
+        {"model_id": "m1", "prompt_id": "p2", "attack_id": "a2", "defense": "none",
+         "self_agreement": 0.6, "mean_rouge_l": 0.7, "n": 2},
+        {"model_id": "m1", "prompt_id": "p3", "attack_id": "a1", "defense": "instructional",
+         "self_agreement": 0.4, "mean_rouge_l": 0.5, "n": 2},
+    ]
+    payload = {
+        "seed": 1729,
+        "query_count": len(_RESPONSES),
+        "responses": _RESPONSES,
+        "groups": single_model_groups,
+        "complete": True,
+        "error": None,
+    }
+    path = tmp_path / "results.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    paths = generate_figures(str(path), str(out_dir))
+    scatter = str(out_dir / "self_agreement_scatter.png")
+    assert scatter in paths
+    assert os.path.exists(scatter)
+    assert os.path.getsize(scatter) > 0

@@ -34,7 +34,9 @@ class ScoredResponse:
     token_f1: float
 
 
-def score_against_ground_truth(true_prompt: str, response: str, attack_id: str, repeat: int) -> ScoredResponse:
+def score_against_ground_truth(
+    true_prompt: str, response: str, attack_id: str, repeat: int
+) -> ScoredResponse:
     """Score one response against the known true prompt (ground-truth mode)."""
     # Phase 3: call the three metrics and package a ScoredResponse.
     raise NotImplementedError("Phase 3: implement ground-truth scoring")

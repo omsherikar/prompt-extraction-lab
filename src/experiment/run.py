@@ -15,11 +15,11 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.experiment.config import ExperimentConfig
+    from src.experiment.config import ExperimentConfig, ModelSpec
     from src.providers.base import Provider
 
 
-def run_smoke() -> None:
+def run_smoke(config_path: str = "config.yaml") -> None:
     """One prompt, one query, one model; print the response. Phase 0 acceptance."""
     from dotenv import load_dotenv
 
@@ -29,7 +29,7 @@ def run_smoke() -> None:
     from src.target.prompts import PROMPTS
 
     load_dotenv()
-    config = load_config()
+    config = load_config(config_path)
     model = config.models[0]
     if model.provider != "anthropic":
         raise SystemExit(f"smoke path supports the anthropic provider; got {model.provider!r}")
@@ -46,7 +46,7 @@ def run_smoke() -> None:
 
 def run_full(
     config: ExperimentConfig | None = None,
-    provider_factory: Callable[[object], Provider] | None = None,
+    provider_factory: Callable[[ModelSpec], Provider] | None = None,
 ) -> dict:
     """Run the full matrix, score every response, write results.json + results.csv.
 
@@ -86,6 +86,17 @@ def run_full(
 
     prompts = [p for p in PROMPTS.values() if p.type in config.prompt_types]
     attacks = ATTACKS
+
+    # Surface the matrix scale BEFORE the loop so an operator sees the spend on a live run
+    # (every cell is a real API call). query_budget is a reporting axis, not a cap here.
+    projected = (
+        len(config.models) * len(prompts) * len(attacks) * len(config.defenses) * config.repeats
+    )
+    print(
+        f"[run_full] matrix: {len(config.models)} models x {len(prompts)} prompts x "
+        f"{len(attacks)} attacks x {len(config.defenses)} defenses x {config.repeats} "
+        f"repeats = {projected} queries"
+    )
 
     rows: list[dict] = []
     groups: list[dict] = []
@@ -199,9 +210,11 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.smoke:
-        run_smoke()
+        run_smoke(args.config)
     else:
-        run_full()
+        from src.experiment.config import load_config
+
+        run_full(load_config(args.config))
 
 
 if __name__ == "__main__":

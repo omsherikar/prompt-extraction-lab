@@ -131,79 +131,9 @@ def run_full(
     rows: list[dict] = []
     groups: list[dict] = []
 
-    for spec in config.models:
-        provider = provider_factory(spec)
-        for prompt in prompts:
-            for attack in attacks:
-                for defense in config.defenses:
-                    system = (
-                        instructional(prompt.text)
-                        if defense == "instructional"
-                        else prompt.text
-                    )
-                    group_responses: list[str] = []
-                    group_rouge: list[float] = []
-                    for repeat in range(config.repeats):
-                        raw = provider.complete(system, attack.template)
-                        response = (
-                            output_filter(
-                                raw, prompt.text, config.output_filter_threshold, opts
-                            )
-                            if defense == "output_filter"
-                            else raw
-                        )
-                        # none/instructional score the original secret; output_filter scores
-                        # the post-filter response (what the attacker receives).
-                        scored = score_against_ground_truth(
-                            prompt.text, response, attack.id, repeat, opts
-                        )
-                        rows.append(
-                            {
-                                "model_id": spec.model_id,
-                                "prompt_id": prompt.id,
-                                "prompt_type": prompt.type,
-                                "attack_id": attack.id,
-                                "family": attack.family,
-                                "defense": defense,
-                                "repeat": repeat,
-                                "exact": scored.exact,
-                                "rouge_l": scored.rouge_l,
-                                "token_f1": scored.token_f1,
-                            }
-                        )
-                        group_responses.append(response)
-                        group_rouge.append(scored.rouge_l)
-
-                    mean_rouge_l = (
-                        sum(group_rouge) / len(group_rouge) if group_rouge else 0.0
-                    )
-                    groups.append(
-                        {
-                            "model_id": spec.model_id,
-                            "prompt_id": prompt.id,
-                            "attack_id": attack.id,
-                            "defense": defense,
-                            "self_agreement": self_agreement(group_responses),
-                            "mean_rouge_l": mean_rouge_l,
-                            "n": config.repeats,
-                        }
-                    )
-
-    query_count = len(rows)
-    results = {
-        "seed": config.seed,
-        "query_count": query_count,
-        "responses": rows,
-        "groups": groups,
-    }
-
     results_dir = Path(config.results_dir)
-    results_dir.mkdir(parents=True, exist_ok=True)
     json_path = results_dir / "results.json"
     csv_path = results_dir / "results.csv"
-
-    with json_path.open("w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
 
     fieldnames = [
         "model_id",
@@ -217,15 +147,118 @@ def run_full(
         "rouge_l",
         "token_f1",
     ]
-    with csv_path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
 
-    print(
-        f"[run_full] {len(rows)} rows, query_count={query_count} -> "
-        f"{json_path} | {csv_path}"
-    )
+    # Crash-safe writer: persist WHATEVER rows/groups exist so far. Called from the `finally`
+    # below, so it runs on success, on a caught Exception (e.g. a free-tier GPU cutoff
+    # mid-run), and on KeyboardInterrupt — a partial run never loses its completed rows.
+    def _write(results: dict) -> None:
+        results_dir.mkdir(parents=True, exist_ok=True)
+        with json_path.open("w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    complete = False
+    error: str | None = None
+    try:
+        for spec in config.models:
+            provider = provider_factory(spec)
+            for prompt in prompts:
+                for attack in attacks:
+                    for defense in config.defenses:
+                        system = (
+                            instructional(prompt.text)
+                            if defense == "instructional"
+                            else prompt.text
+                        )
+                        group_responses: list[str] = []
+                        group_rouge: list[float] = []
+                        for repeat in range(config.repeats):
+                            raw = provider.complete(system, attack.template)
+                            response = (
+                                output_filter(
+                                    raw, prompt.text, config.output_filter_threshold, opts
+                                )
+                                if defense == "output_filter"
+                                else raw
+                            )
+                            # none/instructional score the original secret; output_filter
+                            # scores the post-filter response (what the attacker receives).
+                            scored = score_against_ground_truth(
+                                prompt.text, response, attack.id, repeat, opts
+                            )
+                            rows.append(
+                                {
+                                    "model_id": spec.model_id,
+                                    "prompt_id": prompt.id,
+                                    "prompt_type": prompt.type,
+                                    "attack_id": attack.id,
+                                    "family": attack.family,
+                                    "defense": defense,
+                                    "repeat": repeat,
+                                    "exact": scored.exact,
+                                    "rouge_l": scored.rouge_l,
+                                    "token_f1": scored.token_f1,
+                                }
+                            )
+                            group_responses.append(response)
+                            group_rouge.append(scored.rouge_l)
+
+                        mean_rouge_l = (
+                            sum(group_rouge) / len(group_rouge) if group_rouge else 0.0
+                        )
+                        groups.append(
+                            {
+                                "model_id": spec.model_id,
+                                "prompt_id": prompt.id,
+                                "attack_id": attack.id,
+                                "defense": defense,
+                                "self_agreement": self_agreement(group_responses),
+                                "mean_rouge_l": mean_rouge_l,
+                                "n": config.repeats,
+                            }
+                        )
+        complete = True
+    except Exception as exc:  # noqa: BLE001
+        # A provider failure (e.g. a free-tier GPU-time cutoff raising RuntimeError) aborts the
+        # run but must NOT lose the rows already collected. Capture it and fall through to the
+        # `finally` write; do NOT re-raise — return the partial results gracefully.
+        # KeyboardInterrupt is deliberately NOT caught here, so Ctrl-C propagates — but the
+        # `finally` still writes the partial results first (with complete=False and error=None,
+        # since this except never ran, which is the distinguishable "interrupted" signal).
+        # The error string holds the provider's exception message, which carries no API key by
+        # design: OllamaProvider wraps urllib errors to host+status, and the Anthropic SDK does
+        # not echo the key.
+        complete = False
+        error = f"{type(exc).__name__}: {exc}"
+    finally:
+        results = {
+            "seed": config.seed,
+            "query_count": len(rows),  # ACTUAL completed count, not the projected total
+            "responses": rows,
+            "groups": groups,
+            "complete": complete,
+            "error": error,
+        }
+        try:
+            _write(results)
+        except OSError as write_exc:
+            # A write failure must NOT mask the real abort cause: surface it as a warning and
+            # still return the in-memory results rather than raising out of `finally`.
+            print(f"[run_full] WARNING: could not write results to {results_dir}: {write_exc}")
+
+    if complete:
+        print(
+            f"[run_full] {len(rows)} rows, query_count={len(rows)} -> "
+            f"{json_path} | {csv_path}"
+        )
+    else:
+        print(
+            f"[run_full] ABORTED after {len(rows)} of {projected} calls: {error}. "
+            f"Partial results saved to {json_path}."
+        )
     return results
 
 

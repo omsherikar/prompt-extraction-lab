@@ -128,6 +128,22 @@ def test_by_prompt_type_row_count(tmp_path) -> None:
     assert set(by_prompt_type["prompt_type"]) == {"direct", "role"}
 
 
+def test_empty_responses_does_not_crash(tmp_path) -> None:
+    # A degenerate zero-row run (e.g. a config matching no prompts) must not crash on the
+    # missing `exact` column; aggregate returns empty leakage tables and still correlates
+    # whatever groups exist.
+    payload = {"seed": 1, "query_count": 0, "responses": [], "groups": _GROUPS}
+    path = tmp_path / "results.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    out = aggregate(str(path))
+
+    assert out["by_attack"].empty
+    assert out["by_prompt_type"].empty
+    assert out["by_defense"].empty
+    assert len(out["self_agreement_correlation"]["pairs"]) == len(_GROUPS)
+
+
 def test_self_agreement_correlation_is_positive_and_bounded(tmp_path) -> None:
     out = aggregate(_write_results(tmp_path))
     corr = out["self_agreement_correlation"]

@@ -43,12 +43,18 @@ def aggregate(results_path: str = "data/results/results.json") -> dict:
         results = json.load(f)
 
     responses = pd.DataFrame(results["responses"])
-    # `exact` is a bool column; mean of a bool column is the leak RATE (fraction True).
-    responses["exact"] = responses["exact"].astype(float)
-
-    by_attack = _mean_leak(responses, ["attack_id", "family"])
-    by_prompt_type = _mean_leak(responses, "prompt_type")
-    by_defense = _mean_leak(responses, "defense")
+    if responses.empty:
+        # Degenerate zero-row run (e.g. a config matching no prompts): return empty tables
+        # rather than KeyError on the missing `exact` column. run_full prints a 0-query
+        # matrix line upstream, so an operator sees the cause first.
+        empty = pd.DataFrame(columns=["exact", "rouge_l"])
+        by_attack = by_prompt_type = by_defense = empty
+    else:
+        # `exact` is a bool column; mean of a bool column is the leak RATE (fraction True).
+        responses["exact"] = responses["exact"].astype(float)
+        by_attack = _mean_leak(responses, ["attack_id", "family"])
+        by_prompt_type = _mean_leak(responses, "prompt_type")
+        by_defense = _mean_leak(responses, "defense")
 
     groups = results["groups"]
     agreements = [g["self_agreement"] for g in groups]
@@ -74,7 +80,7 @@ def aggregate(results_path: str = "data/results/results.json") -> dict:
     }
 
 
-def _mean_leak(responses: pd.DataFrame, by) -> pd.DataFrame:  # noqa: ANN001 - str | list[str]
+def _mean_leak(responses: pd.DataFrame, by: str | list[str]) -> pd.DataFrame:
     """Group ``responses`` by ``by`` and take the mean of ``exact`` and ``rouge_l``."""
     return responses.groupby(by)[["exact", "rouge_l"]].mean()
 

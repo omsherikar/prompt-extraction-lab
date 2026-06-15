@@ -1,0 +1,33 @@
+# By-prompt-type run: all 9 prompts (direct + role + in_context) so results.json carries
+# the full direct-vs-role-vs-in_context comparison in one dataset (~648 live calls:
+# 9 prompts x 12 attacks x 3 defenses x 2 repeats). run_full is crash-safe, so a free-tier
+# cutoff still saves the completed rows. Run with:
+#   python3 -m src.experiment.run --config config.bytype.yaml
+seed: 1729
+
+models:
+  - provider: ollama
+    model_id: gpt-oss:120b-cloud
+    temperature: 0.0
+
+query_budget: 20
+
+repeats: 2
+
+normalization:
+  lowercase: true
+  collapse_whitespace: true
+  strip: true
+
+prompt_types: [direct, role, in_context]
+
+defenses:
+  - none
+  - instructional
+  - output_filter
+
+output_filter_threshold: 0.5
+
+output:
+  results_dir: data/results
+  transcripts_dir: data/transcripts

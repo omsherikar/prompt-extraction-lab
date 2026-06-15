@@ -15,9 +15,27 @@ import argparse
 
 def run_smoke() -> None:
     """One prompt, one query, one model; print the response. Phase 0 acceptance."""
-    # Phase 0: load .env, construct the first configured provider, build a TargetApp with one
-    # prompt, call app.query("<benign message>"), and print the response.
-    raise NotImplementedError("Phase 0: implement the smoke path")
+    from dotenv import load_dotenv
+
+    from src.experiment.config import load_config
+    from src.providers.anthropic_provider import AnthropicProvider
+    from src.target.app import TargetApp
+    from src.target.prompts import PROMPTS
+
+    load_dotenv()
+    config = load_config()
+    model = config.models[0]
+    if model.provider != "anthropic":
+        raise SystemExit(f"smoke path supports the anthropic provider; got {model.provider!r}")
+
+    provider = AnthropicProvider(model_id=model.model_id, temperature=model.temperature)
+    prompt = next(iter(PROMPTS.values()))
+    app = TargetApp(prompt=prompt, provider=provider)
+
+    benign = "Hi! In one sentence, what can you help me with?"
+    print(f"[prompt] {prompt.id} ({prompt.type})  [model] {model.model_id}")
+    print(f"[user]   {benign}")
+    print(f"[reply]  {app.query(benign)}")
 
 
 def run_full() -> None:

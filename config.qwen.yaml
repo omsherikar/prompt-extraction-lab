@@ -1,0 +1,32 @@
+# Cross-model run on qwen3-coder (which leaks readily, unlike gpt-oss) to test whether a
+# leaky model flips the self-agreement vs ground-truth correlation positive. Direct prompts
+# only (~216 calls) to stay light on the free tier for a 480B model; written to its own dir.
+#   python3 -m src.experiment.run --config config.qwen.yaml
+seed: 1729
+
+models:
+  - provider: ollama
+    model_id: qwen3-coder:480b-cloud
+    temperature: 0.0
+
+query_budget: 20
+
+repeats: 2
+
+normalization:
+  lowercase: true
+  collapse_whitespace: true
+  strip: true
+
+prompt_types: [direct]
+
+defenses:
+  - none
+  - instructional
+  - output_filter
+
+output_filter_threshold: 0.5
+
+output:
+  results_dir: data/results/run-qwen
+  transcripts_dir: data/transcripts

@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from src.attacks.queries import ALLOWED_SOURCES, ATTACKS, Attack
 
-# Families this phase must cover. `evasion` is Phase 4 and deliberately excluded here.
+# Core families every run must cover. `evasion` is a Phase 4 addition, so it is not required
+# here (it is exercised by its own tests below) — it stays out of REQUIRED_FAMILIES but is
+# allowed via ALLOWED_FAMILIES.
 REQUIRED_FAMILIES = {
     "direct",
     "ignore_reveal",

@@ -58,7 +58,8 @@ def exact_recovery(
 
     Both sides are normalized through the same chokepoint, so with the default (all-on) opts a
     case- or whitespace-only difference still counts as a recovery; disabling a flag (e.g.
-    ``lowercase``) makes that difference matter again.
+    ``lowercase``) makes that difference matter again. An empty true prompt is vacuously
+    recovered (returns ``True``), since the empty string is a substring of any string.
     """
     return normalize(true_prompt, opts) in normalize(response, opts)
 

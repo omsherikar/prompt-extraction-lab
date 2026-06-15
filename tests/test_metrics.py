@@ -56,6 +56,13 @@ def test_exact_recovery_lowercase_off_breaks_case_only_match() -> None:
     assert exact_recovery(true, response, LOWERCASE_OFF) is False
 
 
+def test_exact_recovery_empty_true_prompt_is_vacuously_true() -> None:
+    # The empty string is a substring of any string, so an empty true prompt is vacuously
+    # "recovered". Documented convention; pinned so a refactor cannot silently flip it.
+    assert exact_recovery("", "any response at all") is True
+    assert exact_recovery("", "") is True
+
+
 def test_exact_recovery_whitespace_only_difference_recovers() -> None:
     # Collapse + strip make the awkward whitespace irrelevant under defaults.
     true = "  hello   world  "

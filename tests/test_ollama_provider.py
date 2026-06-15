@@ -165,3 +165,51 @@ def test_url_error_raises_clear_error_without_api_key(
     message = str(excinfo.value)
     assert "secret-key-123" not in message
     assert "ollama.com" in message
+
+
+def test_timeout_raises_clear_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A stalled request must not hang forever: a timeout surfaces as a clear RuntimeError.
+    def boom(request, *args, **kwargs):
+        raise TimeoutError("read timed out")
+
+    monkeypatch.setattr("urllib.request.urlopen", boom)
+    provider = OllamaProvider("llama3.1", host="http://localhost:11434", timeout=5.0)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        provider.complete("SYSTEM", "USER")
+
+    assert "timed out" in str(excinfo.value)
+
+
+def test_error_body_is_surfaced_clearly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Ollama returns model/runtime problems as {"error": ...}; surface it, not a KeyError.
+    payload = {"error": 'model "gpt-oss:120b-cloud" not found, try pulling it first'}
+
+    def fake(request, *args, **kwargs):
+        return _FakeResponse(json.dumps(payload).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+    provider = OllamaProvider("gpt-oss:120b-cloud", host="http://localhost:11434")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        provider.complete("SYSTEM", "USER")
+
+    assert "not found" in str(excinfo.value)
+
+
+def test_unexpected_response_shape_raises_runtimeerror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A body with neither "error" nor message/content yields a clear RuntimeError, not KeyError.
+    def fake(request, *args, **kwargs):
+        return _FakeResponse(json.dumps({"unexpected": "shape"}).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+    provider = OllamaProvider("llama3.1", host="http://localhost:11434")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        provider.complete("SYSTEM", "USER")
+
+    assert "unexpected" in str(excinfo.value).lower()

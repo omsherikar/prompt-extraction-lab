@@ -26,6 +26,8 @@ from src.providers.base import Provider
 
 CLOUD_HOST = "https://ollama.com"
 DEFAULT_LOCAL_HOST = "http://localhost:11434"
+# Wall-clock cap per request so a stalled free-tier call can't hang the whole run.
+DEFAULT_TIMEOUT = 120.0
 
 
 class OllamaProvider(Provider):
@@ -37,9 +39,11 @@ class OllamaProvider(Provider):
         temperature: float = 0.0,
         host: str | None = None,
         max_tokens: int = 2048,
+        timeout: float = DEFAULT_TIMEOUT,
     ) -> None:
         super().__init__(model_id, temperature)
         self.max_tokens = max_tokens
+        self.timeout = timeout
         # Read the key from the environment only (may be None for a local server).
         self._api_key = os.environ.get("OLLAMA_API_KEY")
 
@@ -74,16 +78,29 @@ class OllamaProvider(Provider):
         )
 
         try:
-            with urllib.request.urlopen(request) as response:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             # Report host + status; never include the api key.
             raise RuntimeError(
                 f"Ollama request to {self.host} failed with HTTP {exc.code}: {exc.reason}"
             ) from exc
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"Ollama request to {self.host} timed out after {self.timeout}s"
+            ) from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(
                 f"Ollama request to {self.host} failed: {exc.reason}"
             ) from exc
 
-        return data["message"]["content"]
+        # Ollama reports model/runtime problems as a JSON {"error": ...} body (e.g. a model
+        # that has not been pulled). Surface that clearly instead of a downstream KeyError.
+        if isinstance(data, dict) and data.get("error"):
+            raise RuntimeError(f"Ollama returned an error from {self.host}: {data['error']}")
+        try:
+            return data["message"]["content"]
+        except (KeyError, TypeError) as exc:
+            raise RuntimeError(
+                f"unexpected Ollama response shape from {self.host}: {data!r}"
+            ) from exc

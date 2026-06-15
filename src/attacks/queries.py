@@ -21,8 +21,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Known attack families. Used to group results in the figures.
-AttackFamily = str  # one of: direct, ignore_reveal, repetition, format_coercion, role_debug, evasion
+# Known attack families (used to group results in the figures):
+# direct, ignore_reveal, repetition, format_coercion, role_debug, evasion.
+AttackFamily = str
 
 
 @dataclass(frozen=True)

@@ -15,7 +15,9 @@ Honest charts: zero-based bars, labeled units, stated sample sizes; if n is smal
 from __future__ import annotations
 
 
-def generate_figures(results_path: str = "data/results/results.json", out_dir: str = "blog/figures") -> None:
+def generate_figures(
+    results_path: str = "data/results/results.json", out_dir: str = "blog/figures"
+) -> None:
     """Render all figures from results into out_dir."""
     # Phase 6: build each figure with matplotlib and save to out_dir.
     raise NotImplementedError("Phase 6: implement figure generation")

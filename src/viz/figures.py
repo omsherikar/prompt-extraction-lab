@@ -14,13 +14,221 @@ Honest charts: zero-based bars, labeled units, stated sample sizes; if n is smal
 
 from __future__ import annotations
 
+# Headless backend: select Agg BEFORE importing pyplot so figure generation never needs a
+# display (tests and `make figures` run with no display). Order matters.
+import matplotlib
+
+matplotlib.use("Agg")
+
+import json
+import os
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+from src.scoring.verifier import agreement_vs_truth_correlation
+
+# Fixed ordering for defenses so the grouped bars read consistently across runs.
+_DEFENSE_ORDER = ["none", "instructional", "output_filter"]
+
 
 def generate_figures(
     results_path: str = "data/results/results.json", out_dir: str = "blog/figures"
-) -> None:
-    """Render all figures from results into out_dir."""
-    # Phase 6: build each figure with matplotlib and save to out_dir.
-    raise NotImplementedError("Phase 6: implement figure generation")
+) -> list[str]:
+    """Render all figures from results into out_dir; return the written file paths.
+
+    Loads a results.json (written by ``run_full``) and renders the post's three figures as PNGs:
+    a Rouge-L heatmap (attack x prompt_type), grouped defense bars (mean Rouge-L by attack
+    family x defense), and the self-agreement vs ground-truth scatter (one point per group,
+    colored by model, with a fitted line and the reused Pearson r in the title).
+
+    The heatmap and bars aggregate across whatever models are present; the scatter colors points
+    by ``model_id`` so several models stay visually distinct (this is the cross-model regime
+    figure). Degenerate empty-``responses`` runs write nothing and return ``[]`` (mirrors
+    aggregate's empty guard). Pure render of one JSON file: no network.
+
+    NOTE: the real-vs-confabulation side-by-side text panel (PRD P6-R4) needs the raw response
+    TEXT, which run_full does not persist; it is intentionally out of scope here.
+    """
+    with open(results_path, encoding="utf-8") as f:
+        results = json.load(f)
+
+    responses = pd.DataFrame(results["responses"])
+    if responses.empty:
+        # Degenerate zero-row run (e.g. a config matching no prompts): nothing to plot. Write no
+        # files and return [] rather than rendering empty/garbage axes or crashing on a missing
+        # column. Mirrors aggregate's empty guard.
+        return []
+
+    os.makedirs(out_dir, exist_ok=True)
+    groups = results.get("groups", [])
+
+    paths = [
+        _heatmap(responses, out_dir),
+        _defense_bars(responses, out_dir),
+        _self_agreement_scatter(groups, out_dir),
+    ]
+    return paths
+
+
+def _heatmap(responses: pd.DataFrame, out_dir: str) -> str:
+    """Heatmap of MEAN Rouge-L recall: rows = attack_id, columns = prompt_type.
+
+    Aggregates across models and defenses (mean over every row matching that
+    (attack_id, prompt_type)). Cells are annotated with the value; a colorbar gives the scale.
+    """
+    pivot = pd.pivot_table(
+        responses, values="rouge_l", index="attack_id", columns="prompt_type", aggfunc="mean"
+    )
+
+    fig, ax = plt.subplots(figsize=(max(6, 1.2 * len(pivot.columns) + 3), max(4, 0.5 * len(pivot))))
+    # Rouge-L recall is in [0, 1]; pin the color scale so cells are comparable across runs.
+    im = ax.imshow(pivot.values, aspect="auto", cmap="viridis", vmin=0.0, vmax=1.0)
+
+    ax.set_xticks(range(len(pivot.columns)))
+    ax.set_xticklabels(pivot.columns, rotation=30, ha="right")
+    ax.set_yticks(range(len(pivot.index)))
+    ax.set_yticklabels(pivot.index)
+    ax.set_xlabel("Prompt type")
+    ax.set_ylabel("Attack technique (attack_id)")
+    ax.set_title(
+        "Mean Rouge-L recall by attack technique x prompt type\n"
+        "(aggregated across models and defenses)"
+    )
+
+    # Annotate each cell with its mean value; choose a contrasting text color by cell darkness.
+    for i in range(len(pivot.index)):
+        for j in range(len(pivot.columns)):
+            val = pivot.values[i, j]
+            if pd.isna(val):
+                continue
+            ax.text(
+                j, i, f"{val:.2f}", ha="center", va="center",
+                color="white" if val < 0.5 else "black", fontsize=8,
+            )
+
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label("Mean Rouge-L recall (0-1)")
+    fig.tight_layout()
+
+    path = os.path.join(out_dir, "heatmap.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def _defense_bars(responses: pd.DataFrame, out_dir: str) -> str:
+    """Grouped bars: x = attack family, grouped by defense, y = MEAN Rouge-L recall.
+
+    Bars start at zero (honest scale). Aggregates across models. Only defenses actually present
+    in the data are drawn, in the canonical none/instructional/output_filter order.
+    """
+    pivot = pd.pivot_table(
+        responses, values="rouge_l", index="family", columns="defense", aggfunc="mean"
+    )
+    # Keep canonical defense order for whatever defenses are present.
+    defenses = [d for d in _DEFENSE_ORDER if d in pivot.columns]
+    defenses += [d for d in pivot.columns if d not in defenses]
+    pivot = pivot[defenses]
+
+    families = list(pivot.index)
+    n_def = len(defenses)
+    x = np.arange(len(families))
+    width = 0.8 / max(n_def, 1)
+
+    fig, ax = plt.subplots(figsize=(max(7, 1.6 * len(families) + 2), 5))
+    for k, defense in enumerate(defenses):
+        offsets = x + (k - (n_def - 1) / 2) * width
+        heights = pivot[defense].to_numpy()
+        ax.bar(offsets, np.nan_to_num(heights, nan=0.0), width=width, label=defense)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(families, rotation=20, ha="right")
+    ax.set_xlabel("Attack family")
+    ax.set_ylabel("Mean Rouge-L recall (0-1)")
+    # Honest scale: zero-based, full [0, 1] range so bar heights are not exaggerated.
+    ax.set_ylim(0.0, 1.0)
+    ax.set_title(
+        "Leakage by defense per attack family\n"
+        "(mean Rouge-L recall, aggregated across models)"
+    )
+    ax.legend(title="Defense")
+    fig.tight_layout()
+
+    path = os.path.join(out_dir, "defense_bars.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def _self_agreement_scatter(groups: list[dict], out_dir: str) -> str:
+    """Scatter: x = self_agreement, y = mean_rouge_l, one point per group, colored by model.
+
+    Fits a least-squares line (numpy.polyfit) and reports the Pearson r in the title, reusing
+    the verifier's ``agreement_vs_truth_correlation`` so the figure and the aggregate tables use
+    the identical correlation. The number of groups (n) is noted on the figure. This is the
+    cross-model no-ground-truth figure, so points are colored by ``model_id``.
+    """
+    # Use only groups with finite numeric scores so a malformed/NaN group can't KeyError or
+    # poison the polyfit and the correlation. (Each group is one (model, prompt, attack, defense).)
+    pts = [
+        (g.get("self_agreement"), g.get("mean_rouge_l"), g.get("model_id", "model"))
+        for g in groups
+    ]
+    pts = [
+        (a, t, m)
+        for a, t, m in pts
+        if isinstance(a, (int, float))
+        and isinstance(t, (int, float))
+        and np.isfinite(a)
+        and np.isfinite(t)
+    ]
+    agreements = [a for a, _, _ in pts]
+    truths = [t for _, t, _ in pts]
+    model_ids = [m for _, _, m in pts]
+    # Reuse the verifier's Pearson r so the figure and the aggregate tables agree exactly.
+    r = agreement_vs_truth_correlation(agreements, truths)
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+
+    # Color points by model so several models stay visually distinct (one model: one color).
+    models = sorted(set(model_ids))
+    cmap = plt.get_cmap("tab10")
+    color_for = {m: cmap(i % 10) for i, m in enumerate(models)}
+    for m in models:
+        xs = [a for a, mid in zip(agreements, model_ids, strict=True) if mid == m]
+        ys = [t for t, mid in zip(truths, model_ids, strict=True) if mid == m]
+        ax.scatter(xs, ys, color=color_for[m], label=m, alpha=0.8, edgecolors="none")
+
+    # Least-squares fit line over all points (needs >= 2 distinct x to be meaningful).
+    if len(agreements) >= 2 and len(set(agreements)) >= 2:
+        slope, intercept = np.polyfit(agreements, truths, 1)
+        xline = np.linspace(min(agreements), max(agreements), 100)
+        ax.plot(xline, slope * xline + intercept, color="black", linestyle="--",
+                linewidth=1.5, label="least-squares fit")
+
+    ax.set_xlabel("Self-agreement (pairwise Rouge-L among repeats, no ground truth)")
+    ax.set_ylabel("Mean Rouge-L recall vs true prompt (ground truth)")
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(0.0, 1.0)
+    # Neutral title: state the relationship, do NOT assert a direction — let r (which can be
+    # negative) speak. Asserting "predicts" while r is negative would be exactly the kind of
+    # dressed-up figure this project exists to avoid.
+    ax.set_title(f"Self-agreement vs. true extraction quality\nPearson r = {r:.3f}")
+    # Note the sample size (n groups actually plotted) honestly on the figure.
+    ax.text(
+        0.02, 0.98, f"n = {len(agreements)} groups", transform=ax.transAxes,
+        ha="left", va="top", fontsize=9,
+        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.7},
+    )
+    ax.legend(title="Model", loc="lower right")
+    fig.tight_layout()
+
+    path = os.path.join(out_dir, "self_agreement_scatter.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
 
 
 if __name__ == "__main__":

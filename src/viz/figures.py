@@ -170,9 +170,23 @@ def _self_agreement_scatter(groups: list[dict], out_dir: str) -> str:
     the identical correlation. The number of groups (n) is noted on the figure. This is the
     cross-model no-ground-truth figure, so points are colored by ``model_id``.
     """
-    agreements = [g["self_agreement"] for g in groups]
-    truths = [g["mean_rouge_l"] for g in groups]
-    model_ids = [g["model_id"] for g in groups]
+    # Use only groups with finite numeric scores so a malformed/NaN group can't KeyError or
+    # poison the polyfit and the correlation. (Each group is one (model, prompt, attack, defense).)
+    pts = [
+        (g.get("self_agreement"), g.get("mean_rouge_l"), g.get("model_id", "model"))
+        for g in groups
+    ]
+    pts = [
+        (a, t, m)
+        for a, t, m in pts
+        if isinstance(a, (int, float))
+        and isinstance(t, (int, float))
+        and np.isfinite(a)
+        and np.isfinite(t)
+    ]
+    agreements = [a for a, _, _ in pts]
+    truths = [t for _, t, _ in pts]
+    model_ids = [m for _, _, m in pts]
     # Reuse the verifier's Pearson r so the figure and the aggregate tables agree exactly.
     r = agreement_vs_truth_correlation(agreements, truths)
 
@@ -198,10 +212,13 @@ def _self_agreement_scatter(groups: list[dict], out_dir: str) -> str:
     ax.set_ylabel("Mean Rouge-L recall vs true prompt (ground truth)")
     ax.set_xlim(0.0, 1.0)
     ax.set_ylim(0.0, 1.0)
-    ax.set_title(f"Self-agreement predicts true extraction quality\nPearson r = {r:.3f}")
-    # Note the sample size (n groups) honestly on the figure.
+    # Neutral title: state the relationship, do NOT assert a direction — let r (which can be
+    # negative) speak. Asserting "predicts" while r is negative would be exactly the kind of
+    # dressed-up figure this project exists to avoid.
+    ax.set_title(f"Self-agreement vs. true extraction quality\nPearson r = {r:.3f}")
+    # Note the sample size (n groups actually plotted) honestly on the figure.
     ax.text(
-        0.02, 0.98, f"n = {len(groups)} groups", transform=ax.transAxes,
+        0.02, 0.98, f"n = {len(agreements)} groups", transform=ax.transAxes,
         ha="left", va="top", fontsize=9,
         bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.7},
     )

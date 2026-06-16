@@ -311,7 +311,8 @@ def _heatmap(responses: pd.DataFrame, out_dir: str, t: Theme) -> str:
     cbar = fig.colorbar(im, ax=list(axes))
     cbar.set_label("Mean Rouge-L recall (0-1)", color=t.fg)
     cbar.ax.yaxis.set_tick_params(color=t.tick, labelcolor=t.fg)
-    cbar.outline.set_edgecolor(t.spine)
+    if cbar.outline is not None:
+        cbar.outline.set_edgecolor(t.spine)
     fig.suptitle(
         "Leakage (mean Rouge-L recall) by attack technique x prompt type, per model"
     )

@@ -74,18 +74,21 @@ def generate_figures(
     return paths
 
 
-def _heatmap(responses: pd.DataFrame, out_dir: str) -> str:
-    """Heatmap of MEAN Rouge-L recall: rows = attack_id, columns = prompt_type.
+def _models_in(responses: pd.DataFrame) -> list[str]:
+    """Sorted set of distinct model_ids present, so figures can be faceted per model."""
+    return sorted(responses["model_id"].unique())
 
-    Aggregates across models and defenses (mean over every row matching that
-    (attack_id, prompt_type)). Cells are annotated with the value; a colorbar gives the scale.
+
+def _draw_heatmap_panel(ax, model_rows: pd.DataFrame, title: str):
+    """Draw ONE model's Rouge-L heatmap (attack_id x prompt_type) onto ``ax``; return the image.
+
+    Cells are mean Rouge-L over that model's matching rows (across defenses), annotated with the
+    value. The color scale is pinned to [0, 1] by the caller (vmin/vmax) so panels are comparable.
+    A (attack, prompt_type) combo with no rows is a NaN cell, left blank.
     """
     pivot = pd.pivot_table(
-        responses, values="rouge_l", index="attack_id", columns="prompt_type", aggfunc="mean"
+        model_rows, values="rouge_l", index="attack_id", columns="prompt_type", aggfunc="mean"
     )
-
-    fig, ax = plt.subplots(figsize=(max(6, 1.2 * len(pivot.columns) + 3), max(4, 0.5 * len(pivot))))
-    # Rouge-L recall is in [0, 1]; pin the color scale so cells are comparable across runs.
     im = ax.imshow(pivot.values, aspect="auto", cmap="viridis", vmin=0.0, vmax=1.0)
 
     ax.set_xticks(range(len(pivot.columns)))
@@ -94,12 +97,10 @@ def _heatmap(responses: pd.DataFrame, out_dir: str) -> str:
     ax.set_yticklabels(pivot.index)
     ax.set_xlabel("Prompt type")
     ax.set_ylabel("Attack technique (attack_id)")
-    ax.set_title(
-        "Mean Rouge-L recall by attack technique x prompt type\n"
-        "(aggregated across models and defenses)"
-    )
+    ax.set_title(title)
 
     # Annotate each cell with its mean value; choose a contrasting text color by cell darkness.
+    # A model x prompt_type combo with no rows is NaN: leave the cell blank.
     for i in range(len(pivot.index)):
         for j in range(len(pivot.columns)):
             val = pivot.values[i, j]
@@ -109,10 +110,39 @@ def _heatmap(responses: pd.DataFrame, out_dir: str) -> str:
                 j, i, f"{val:.2f}", ha="center", va="center",
                 color="white" if val < 0.5 else "black", fontsize=8,
             )
+    return im
 
-    cbar = fig.colorbar(im, ax=ax)
+
+def _heatmap(responses: pd.DataFrame, out_dir: str) -> str:
+    """Heatmap of MEAN Rouge-L recall: rows = attack_id, columns = prompt_type, faceted by model.
+
+    Cells are mean Rouge-L over the matching rows (across defenses). With a SINGLE model the figure
+    is one labeled panel; with MULTIPLE models it FACETS into one panel per model side by side
+    (same [0, 1] color scale, one shared colorbar) so a resistant and a leaky model are never
+    blended into a meaningless mean and each panel is identifiable by its model id.
+    """
+    models = _models_in(responses)
+    n = len(models)
+
+    # Width scales with the number of model panels; height with the number of attack rows.
+    n_rows = responses["attack_id"].nunique()
+    n_cols = responses["prompt_type"].nunique()
+    panel_w = max(6, 1.2 * n_cols + 3)
+    fig, axes = plt.subplots(
+        1, n, figsize=(panel_w * n, max(4, 0.5 * n_rows)), squeeze=False
+    )
+    axes = axes[0]
+
+    im = None
+    for ax, model in zip(axes, models, strict=True):
+        im = _draw_heatmap_panel(ax, responses[responses["model_id"] == model], model)
+
+    # One shared colorbar for the whole figure (same scale across panels).
+    cbar = fig.colorbar(im, ax=list(axes))
     cbar.set_label("Mean Rouge-L recall (0-1)")
-    fig.tight_layout()
+    fig.suptitle(
+        "Leakage (mean Rouge-L recall) by attack technique x prompt type, per model"
+    )
 
     path = os.path.join(out_dir, "heatmap.png")
     fig.savefig(path, dpi=150)
@@ -120,14 +150,15 @@ def _heatmap(responses: pd.DataFrame, out_dir: str) -> str:
     return path
 
 
-def _defense_bars(responses: pd.DataFrame, out_dir: str) -> str:
-    """Grouped bars: x = attack family, grouped by defense, y = MEAN Rouge-L recall.
+def _draw_defense_bars_panel(ax, model_rows: pd.DataFrame, title: str):
+    """Draw ONE model's grouped defense bars (x = family, grouped by defense) onto ``ax``.
 
-    Bars start at zero (honest scale). Aggregates across models. Only defenses actually present
-    in the data are drawn, in the canonical none/instructional/output_filter order.
+    Bars start at zero (honest scale, [0, 1] ylim set by the caller). Only defenses present for
+    this model are drawn, in the canonical none/instructional/output_filter order. A family x
+    defense combo with no rows is NaN, drawn as a zero-height bar (np.nan_to_num).
     """
     pivot = pd.pivot_table(
-        responses, values="rouge_l", index="family", columns="defense", aggfunc="mean"
+        model_rows, values="rouge_l", index="family", columns="defense", aggfunc="mean"
     )
     # Keep canonical defense order for whatever defenses are present.
     defenses = [d for d in _DEFENSE_ORDER if d in pivot.columns]
@@ -139,7 +170,6 @@ def _defense_bars(responses: pd.DataFrame, out_dir: str) -> str:
     x = np.arange(len(families))
     width = 0.8 / max(n_def, 1)
 
-    fig, ax = plt.subplots(figsize=(max(7, 1.6 * len(families) + 2), 5))
     for k, defense in enumerate(defenses):
         offsets = x + (k - (n_def - 1) / 2) * width
         heights = pivot[defense].to_numpy()
@@ -151,11 +181,31 @@ def _defense_bars(responses: pd.DataFrame, out_dir: str) -> str:
     ax.set_ylabel("Mean Rouge-L recall (0-1)")
     # Honest scale: zero-based, full [0, 1] range so bar heights are not exaggerated.
     ax.set_ylim(0.0, 1.0)
-    ax.set_title(
-        "Leakage by defense per attack family\n"
-        "(mean Rouge-L recall, aggregated across models)"
-    )
+    ax.set_title(title)
     ax.legend(title="Defense")
+
+
+def _defense_bars(responses: pd.DataFrame, out_dir: str) -> str:
+    """Grouped bars: x = attack family, grouped by defense, y = MEAN Rouge-L recall, per model.
+
+    Bars start at zero (honest scale). With a SINGLE model the figure is one labeled panel; with
+    MULTIPLE models it FACETS into one panel per model side by side, so the leakage-by-defense
+    story is read per model (not averaged) and each panel is identifiable by its model id.
+    """
+    models = _models_in(responses)
+    n = len(models)
+
+    n_families = responses["family"].nunique()
+    panel_w = max(7, 1.6 * n_families + 2)
+    fig, axes = plt.subplots(1, n, figsize=(panel_w * n, 5), squeeze=False)
+    axes = axes[0]
+
+    for ax, model in zip(axes, models, strict=True):
+        _draw_defense_bars_panel(ax, responses[responses["model_id"] == model], model)
+
+    fig.suptitle(
+        "Leakage by defense per attack family (mean Rouge-L recall), per model"
+    )
     fig.tight_layout()
 
     path = os.path.join(out_dir, "defense_bars.png")

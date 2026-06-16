@@ -27,6 +27,38 @@ cannot tell a real recovery from a plausible hallucination.
    defense barely helps.
 5. Practical conclusion: a system prompt is not a vault. Treat anything in it as eventually public.
 
+## Architecture
+
+Everything is pluggable behind a one-method `Provider` interface, and the scoring is pure
+(strings in, numbers out, no I/O), so the whole thing is deterministic and unit-tested.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/architecture.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/architecture-light.svg">
+    <img alt="Architecture of the prompt-extraction-lab harness" src="docs/architecture.svg" width="760">
+  </picture>
+</p>
+
+How it works, step by step:
+
+1. **`config.yaml`** declares the matrix: which models, defenses, repeats, and the seed. A run is
+   reproducible from config plus seed.
+2. **`run_full`** loops over models x prompts x attacks x defenses x repeats.
+3. For each cell it wraps one **ground-truth prompt** we wrote into a **`TargetApp`**, optionally
+   hardened with the `instructional` defense, and sends a **cited attack query** to the
+   **`Provider`** (Ollama by default, Anthropic optional).
+4. The reply is optionally passed through the **`output_filter`** defense, then **scored** against
+   the original secret with three metrics (`exact_recovery`, `rouge_l_recall`, `token_f1`).
+5. The **verifier** also computes the no-ground-truth **self-agreement** score per attack group,
+   which is the original contribution: it estimates extraction reliability without the secret.
+6. Results land in **`results.json` / `results.csv`**, which **`aggregate`** turns into tables and
+   **`viz/figures.py`** turns into the heatmap, defense bars, and self-agreement scatter.
+
+The integrity invariant: `self_agreement` never sees the true prompt (it takes only the
+extractions), so the no-ground-truth result cannot be contaminated by ground truth. That is
+enforced by a test.
+
 ## Quickstart
 
 ```bash

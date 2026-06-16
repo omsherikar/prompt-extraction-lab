@@ -132,6 +132,36 @@ def test_empty_responses_does_not_crash(tmp_path) -> None:
         assert list(out_dir.glob("*.png")) == []
 
 
+def test_two_model_heatmap_and_bars_facet_render(tmp_path) -> None:
+    # The synthetic fixture spans two model_ids ("m1", "m2"). The heatmap and defense bars must
+    # FACET per model (one panel per model) rather than averaging the two models into one chart.
+    # Pin the user-visible contract here: both PNGs still render and are non-empty (faceted).
+    out_dir = tmp_path / "figs"
+    paths = generate_figures(_write_results(tmp_path), str(out_dir))
+
+    for name in ("heatmap.png", "defense_bars.png"):
+        p = str(out_dir / name)
+        assert p in paths
+        assert os.path.exists(p), p
+        assert os.path.getsize(p) > 0, p
+
+
+def test_single_model_heatmap_and_bars_render(tmp_path) -> None:
+    # The model-aware logic must also work for ONE model: a single labeled panel. Restrict the
+    # responses to "m1" so the heatmap and bars see a single model_id and render one panel each.
+    single_model_responses = [r for r in _RESPONSES if r["model_id"] == "m1"]
+    out_dir = tmp_path / "figs"
+    paths = generate_figures(
+        _write_results(tmp_path, responses=single_model_responses), str(out_dir)
+    )
+
+    for name in ("heatmap.png", "defense_bars.png"):
+        p = str(out_dir / name)
+        assert p in paths
+        assert os.path.exists(p), p
+        assert os.path.getsize(p) > 0, p
+
+
 def test_two_model_scatter_renders(tmp_path) -> None:
     # The per-model scatter: the synthetic fixture spans two model_ids ("m1", "m2"), each with
     # >= 2 groups and >= 2 distinct self_agreement x-values, so each model gets its own fit line

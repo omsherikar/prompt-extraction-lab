@@ -137,7 +137,9 @@ def _heatmap(responses: pd.DataFrame, out_dir: str) -> str:
     for ax, model in zip(axes, models, strict=True):
         im = _draw_heatmap_panel(ax, responses[responses["model_id"] == model], model)
 
-    # One shared colorbar for the whole figure (same scale across panels).
+    # One shared colorbar for the whole figure (same scale across panels). The empty-responses
+    # guard upstream means there is always >= 1 model, so the loop ran and `im` is set.
+    assert im is not None
     cbar = fig.colorbar(im, ax=list(axes))
     cbar.set_label("Mean Rouge-L recall (0-1)")
     fig.suptitle(

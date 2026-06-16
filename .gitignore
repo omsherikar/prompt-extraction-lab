@@ -11,6 +11,11 @@ data/transcripts/*
 # Run logs (the scored results.json/csv are the committed artifact, not the log).
 data/results/*.log
 
+# Generated figures are regenerable from results.json via `make figures` (both themes);
+# keep them out of git to avoid binary churn. The blog embeds the chosen ones at publish time.
+blog/figures/*.png
+blog/figures/**/*.png
+
 # --- Python ---
 __pycache__/
 *.py[cod]

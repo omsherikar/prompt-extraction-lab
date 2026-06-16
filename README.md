@@ -32,13 +32,20 @@ cannot tell a real recovery from a plausible hallucination.
 Everything is pluggable behind a one-method `Provider` interface, and the scoring is pure
 (strings in, numbers out, no I/O), so the whole thing is deterministic and unit-tested.
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/architecture.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/architecture-light.svg">
-    <img alt="Architecture of the prompt-extraction-lab harness" src="docs/architecture.svg" width="760">
-  </picture>
-</p>
+```mermaid
+flowchart TD
+  C["config.yaml — models, defenses, repeats, seed"] --> R["run_full — full matrix loop"]
+  P["Ground-truth prompts — direct / role / in_context"] --> R
+  A["Cited attack library — 12 documented techniques"] --> R
+  R --> T["TargetApp — secret prompt + defense"]
+  T --> M["Provider — Ollama / Anthropic"]
+  M --> F["output_filter — redact high-overlap replies"]
+  F --> S["Scoring — exact / Rouge-L / token-F1"]
+  S --> V["Verifier — ground truth + self-agreement"]
+  V --> O["results.json / results.csv (committed)"]
+  O --> G["Aggregate — summary tables"]
+  O --> Z["Figures — heatmap / bars / scatter"]
+```
 
 How it works, step by step:
 

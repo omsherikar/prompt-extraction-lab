@@ -79,30 +79,36 @@ def _models_in(responses: pd.DataFrame) -> list[str]:
     return sorted(responses["model_id"].unique())
 
 
-def _draw_heatmap_panel(ax, model_rows: pd.DataFrame, title: str):
+def _draw_heatmap_panel(ax, model_rows, title, attack_ids, prompt_types, show_y):
     """Draw ONE model's Rouge-L heatmap (attack_id x prompt_type) onto ``ax``; return the image.
 
-    Cells are mean Rouge-L over that model's matching rows (across defenses), annotated with the
-    value. The color scale is pinned to [0, 1] by the caller (vmin/vmax) so panels are comparable.
-    A (attack, prompt_type) combo with no rows is a NaN cell, left blank.
+    The pivot is reindexed to the shared ``attack_ids``/``prompt_types`` so every panel has the
+    same rows/cols and they align; that lets non-leftmost panels hide the (long) row labels via
+    ``show_y=False`` instead of repeating them in the middle of the figure. Cells are mean
+    Rouge-L over that model's rows (across defenses); a missing combo is a NaN (blank) cell. The
+    color scale is pinned to [0, 1] by the caller so panels are comparable.
     """
     pivot = pd.pivot_table(
         model_rows, values="rouge_l", index="attack_id", columns="prompt_type", aggfunc="mean"
-    )
+    ).reindex(index=attack_ids, columns=prompt_types)
     im = ax.imshow(pivot.values, aspect="auto", cmap="viridis", vmin=0.0, vmax=1.0)
 
-    ax.set_xticks(range(len(pivot.columns)))
-    ax.set_xticklabels(pivot.columns, rotation=30, ha="right")
-    ax.set_yticks(range(len(pivot.index)))
-    ax.set_yticklabels(pivot.index)
+    ax.set_xticks(range(len(prompt_types)))
+    ax.set_xticklabels(prompt_types, rotation=30, ha="right")
+    ax.set_yticks(range(len(attack_ids)))
+    if show_y:
+        ax.set_yticklabels(attack_ids)
+        ax.set_ylabel("Attack technique (attack_id)")
+    else:
+        # Shared rows: only the leftmost panel labels them (avoids mid-figure overlap).
+        ax.tick_params(labelleft=False)
     ax.set_xlabel("Prompt type")
-    ax.set_ylabel("Attack technique (attack_id)")
     ax.set_title(title)
 
-    # Annotate each cell with its mean value; choose a contrasting text color by cell darkness.
-    # A model x prompt_type combo with no rows is NaN: leave the cell blank.
-    for i in range(len(pivot.index)):
-        for j in range(len(pivot.columns)):
+    # Annotate each cell with its mean value; contrasting text color by cell darkness.
+    # A NaN cell (no rows for that combo) is left blank.
+    for i in range(len(attack_ids)):
+        for j in range(len(prompt_types)):
             val = pivot.values[i, j]
             if pd.isna(val):
                 continue
@@ -124,18 +130,24 @@ def _heatmap(responses: pd.DataFrame, out_dir: str) -> str:
     models = _models_in(responses)
     n = len(models)
 
+    # Shared rows/cols across panels so they align and only the leftmost panel needs row labels.
+    attack_ids = sorted(responses["attack_id"].unique())
+    prompt_types = sorted(responses["prompt_type"].unique())
+
     # Width scales with the number of model panels; height with the number of attack rows.
-    n_rows = responses["attack_id"].nunique()
-    n_cols = responses["prompt_type"].nunique()
-    panel_w = max(6, 1.2 * n_cols + 3)
+    panel_w = max(6, 1.2 * len(prompt_types) + 3)
     fig, axes = plt.subplots(
-        1, n, figsize=(panel_w * n, max(4, 0.5 * n_rows)), squeeze=False
+        1, n, figsize=(panel_w * n, max(4, 0.5 * len(attack_ids))),
+        squeeze=False, constrained_layout=True,
     )
     axes = axes[0]
 
     im = None
-    for ax, model in zip(axes, models, strict=True):
-        im = _draw_heatmap_panel(ax, responses[responses["model_id"] == model], model)
+    for i, (ax, model) in enumerate(zip(axes, models, strict=True)):
+        im = _draw_heatmap_panel(
+            ax, responses[responses["model_id"] == model], model,
+            attack_ids, prompt_types, show_y=(i == 0),
+        )
 
     # One shared colorbar for the whole figure (same scale across panels). The empty-responses
     # guard upstream means there is always >= 1 model, so the loop ran and `im` is set.
@@ -152,22 +164,22 @@ def _heatmap(responses: pd.DataFrame, out_dir: str) -> str:
     return path
 
 
-def _draw_defense_bars_panel(ax, model_rows: pd.DataFrame, title: str):
+def _draw_defense_bars_panel(ax, model_rows, title, families, show_y):
     """Draw ONE model's grouped defense bars (x = family, grouped by defense) onto ``ax``.
 
-    Bars start at zero (honest scale, [0, 1] ylim set by the caller). Only defenses present for
-    this model are drawn, in the canonical none/instructional/output_filter order. A family x
-    defense combo with no rows is NaN, drawn as a zero-height bar (np.nan_to_num).
+    Reindexed to the shared ``families`` so panels align; only the leftmost panel labels the
+    y-axis (``show_y``). Bars start at zero (honest [0, 1] scale). Defenses are drawn in the
+    canonical none/instructional/output_filter order; a family x defense combo with no rows is
+    NaN, drawn as a zero-height bar.
     """
     pivot = pd.pivot_table(
         model_rows, values="rouge_l", index="family", columns="defense", aggfunc="mean"
-    )
+    ).reindex(index=families)
     # Keep canonical defense order for whatever defenses are present.
     defenses = [d for d in _DEFENSE_ORDER if d in pivot.columns]
     defenses += [d for d in pivot.columns if d not in defenses]
     pivot = pivot[defenses]
 
-    families = list(pivot.index)
     n_def = len(defenses)
     x = np.arange(len(families))
     width = 0.8 / max(n_def, 1)
@@ -180,9 +192,12 @@ def _draw_defense_bars_panel(ax, model_rows: pd.DataFrame, title: str):
     ax.set_xticks(x)
     ax.set_xticklabels(families, rotation=20, ha="right")
     ax.set_xlabel("Attack family")
-    ax.set_ylabel("Mean Rouge-L recall (0-1)")
     # Honest scale: zero-based, full [0, 1] range so bar heights are not exaggerated.
     ax.set_ylim(0.0, 1.0)
+    if show_y:
+        ax.set_ylabel("Mean Rouge-L recall (0-1)")
+    else:
+        ax.tick_params(labelleft=False)
     ax.set_title(title)
     ax.legend(title="Defense")
 
@@ -197,18 +212,22 @@ def _defense_bars(responses: pd.DataFrame, out_dir: str) -> str:
     models = _models_in(responses)
     n = len(models)
 
-    n_families = responses["family"].nunique()
-    panel_w = max(7, 1.6 * n_families + 2)
-    fig, axes = plt.subplots(1, n, figsize=(panel_w * n, 5), squeeze=False)
+    # Shared family order across panels so they align and only the leftmost panel labels the axis.
+    families = sorted(responses["family"].unique())
+    panel_w = max(7, 1.6 * len(families) + 2)
+    fig, axes = plt.subplots(
+        1, n, figsize=(panel_w * n, 5), squeeze=False, constrained_layout=True
+    )
     axes = axes[0]
 
-    for ax, model in zip(axes, models, strict=True):
-        _draw_defense_bars_panel(ax, responses[responses["model_id"] == model], model)
+    for i, (ax, model) in enumerate(zip(axes, models, strict=True)):
+        _draw_defense_bars_panel(
+            ax, responses[responses["model_id"] == model], model, families, show_y=(i == 0)
+        )
 
     fig.suptitle(
         "Leakage by defense per attack family (mean Rouge-L recall), per model"
     )
-    fig.tight_layout()
 
     path = os.path.join(out_dir, "defense_bars.png")
     fig.savefig(path, dpi=150)

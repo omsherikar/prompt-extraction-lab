@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 import os
 
+import pytest
+
 from src.viz.figures import generate_figures
 
 # --- synthetic fixture -------------------------------------------------------
@@ -204,3 +206,28 @@ def test_single_model_scatter_renders(tmp_path) -> None:
     assert scatter in paths
     assert os.path.exists(scatter)
     assert os.path.getsize(scatter) > 0
+
+
+def test_light_theme_renders_three_nonempty_pngs(tmp_path) -> None:
+    # The "light" theme must render the same 3 figures, offline and headless, into existing,
+    # non-empty PNGs (only the palette/colormap/glow differ from the default "dark" look).
+    out_dir = tmp_path / "figs-light"
+    paths = generate_figures(_write_results(tmp_path), str(out_dir), theme="light")
+
+    assert len(paths) == 3
+    expected = {
+        str(out_dir / "heatmap.png"),
+        str(out_dir / "defense_bars.png"),
+        str(out_dir / "self_agreement_scatter.png"),
+    }
+    assert set(paths) == expected
+    for p in paths:
+        assert os.path.exists(p), p
+        assert os.path.getsize(p) > 0, p
+
+
+def test_unknown_theme_raises_value_error(tmp_path) -> None:
+    # An unrecognized theme name must fail loudly with a ValueError naming the valid themes,
+    # rather than silently rendering with some default.
+    with pytest.raises(ValueError, match="unknown theme"):
+        generate_figures(_write_results(tmp_path), str(tmp_path / "figs"), theme="bogus")

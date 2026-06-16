@@ -1,6 +1,6 @@
-# Cross-model run on qwen3-coder (which leaks readily, unlike gpt-oss) to test whether a
-# leaky model flips the self-agreement vs ground-truth correlation positive. Direct prompts
-# only (~216 calls) to stay light on the free tier for a 480B model; written to its own dir.
+# Cross-model run on qwen3-coder (which leaks readily, unlike gpt-oss). FULL matrix: all 9
+# prompts (direct + role + in_context) x 12 attacks x 3 defenses x 2 repeats = ~648 calls,
+# symmetric with the gpt-oss:120b run, written to its own dir. run_full is crash-safe.
 #   python3 -m src.experiment.run --config config.qwen.yaml
 seed: 1729
 
@@ -18,7 +18,7 @@ normalization:
   collapse_whitespace: true
   strip: true
 
-prompt_types: [direct]
+prompt_types: [direct, role, in_context]
 
 defenses:
   - none

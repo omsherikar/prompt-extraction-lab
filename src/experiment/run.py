@@ -37,6 +37,36 @@ def build_provider(spec: ModelSpec) -> Provider:
     )
 
 
+def _complete_with_retries(
+    provider: Provider,
+    system_prompt: str,
+    user_message: str,
+    max_attempts: int = 3,
+    backoff: float = 3.0,
+) -> str:
+    """Call ``provider.complete``, absorbing transient failures (e.g. a free-tier stall).
+
+    The free Ollama Cloud tier intermittently queues a request past the provider's wall-clock
+    timeout; a single such stall should not kill an otherwise-good 648-call run. Retry up to
+    ``max_attempts`` times with linear backoff. If EVERY attempt fails, the last exception
+    propagates, so a genuinely persistent failure still aborts the run (and the crash-safe
+    ``finally`` writes the partial results) — only transient stalls are recovered. No I/O beyond
+    the provider call and ``time.sleep``.
+    """
+    import time
+
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return provider.complete(system_prompt, user_message)
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt < max_attempts - 1 and backoff > 0:
+                time.sleep(backoff * (attempt + 1))
+    assert last_exc is not None  # max_attempts >= 1, so at least one attempt ran
+    raise last_exc
+
+
 def run_smoke(config_path: str = "config.yaml") -> None:
     """One prompt, one query, one model; print the response. Phase 0 acceptance."""
     from dotenv import load_dotenv
@@ -61,6 +91,8 @@ def run_smoke(config_path: str = "config.yaml") -> None:
 def run_full(
     config: ExperimentConfig | None = None,
     provider_factory: Callable[[ModelSpec], Provider] | None = None,
+    max_attempts: int = 3,
+    retry_backoff: float = 3.0,
 ) -> dict:
     """Run the full matrix, score every response, write results.json + results.csv.
 
@@ -76,6 +108,10 @@ def run_full(
     which dispatches on ``spec.provider`` and imports the backend lazily, so importing this
     module needs no API key. Tests inject a fake factory to run fully offline. Returns the
     results dict.
+
+    Each model call is retried up to ``max_attempts`` times with ``retry_backoff`` linear backoff
+    (see ``_complete_with_retries``), so a transient free-tier stall does not abort the whole run;
+    a persistent failure still propagates and aborts gracefully via the crash-safe ``finally``.
 
     Writes only scored results (results.json + results.csv). Raw per-response transcripts are
     not persisted here; the standalone Phase 2 runner is the transcript-capture tool.
@@ -176,7 +212,13 @@ def run_full(
                         group_responses: list[str] = []
                         group_rouge: list[float] = []
                         for repeat in range(config.repeats):
-                            raw = provider.complete(system, attack.template)
+                            raw = _complete_with_retries(
+                                provider,
+                                system,
+                                attack.template,
+                                max_attempts,
+                                retry_backoff,
+                            )
                             response = (
                                 output_filter(
                                     raw, prompt.text, config.output_filter_threshold, opts

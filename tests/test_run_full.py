@@ -91,6 +91,26 @@ class FailingFakeProvider(Provider):
         return "ok"
 
 
+class FlakyFakeProvider(Provider):
+    """Offline provider that raises on its first ``fail_times`` calls, then succeeds.
+
+    Simulates a TRANSIENT free-tier stall (a one-off timeout that clears on retry), as opposed
+    to ``FailingFakeProvider``'s permanent cutoff. Used to prove ``run_full``'s per-call retry
+    recovers from a transient failure and still completes the full matrix.
+    """
+
+    def __init__(self, model_id: str, temperature: float, fail_times: int = 1) -> None:
+        super().__init__(model_id, temperature)
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def complete(self, system_prompt: str, user_message: str) -> str:
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise RuntimeError("simulated transient stall")
+        return system_prompt
+
+
 def _make_config(tmp_path) -> ExperimentConfig:
     """A small, fully-specified config writing under tmp_path (real dirs untouched)."""
     return ExperimentConfig(
@@ -252,8 +272,9 @@ def test_partial_results_saved_when_provider_fails_midrun(tmp_path) -> None:
     def failing_factory(spec: ModelSpec) -> FailingFakeProvider:
         return FailingFakeProvider(spec.model_id, spec.temperature, fail_after=n)
 
-    # Must return gracefully (no exception propagates).
-    results = run_full(cfg, provider_factory=failing_factory)
+    # retry_backoff=0.0 keeps the test fast: the failing call exhausts its retries with no
+    # sleeps, then the run aborts. A persistent failure must still abort after retries.
+    results = run_full(cfg, provider_factory=failing_factory, retry_backoff=0.0)
 
     assert results["complete"] is False
     assert results["error"] is not None
@@ -279,3 +300,27 @@ def test_partial_results_saved_when_provider_fails_midrun(tmp_path) -> None:
     with csv_path.open(encoding="utf-8", newline="") as f:
         data_rows = list(csv.DictReader(f))
     assert len(data_rows) == n
+
+
+def test_transient_failure_is_retried_and_run_completes(tmp_path) -> None:
+    """A one-off (transient) provider failure is retried, so the full matrix still completes.
+
+    The free Ollama Cloud tier intermittently stalls a single call past the timeout. The
+    provider's first call raises once and then every call succeeds; with per-call retries the
+    run must recover and finish the WHOLE matrix (complete=True, no error, full row count),
+    rather than aborting as it would for a persistent failure.
+    """
+    cfg = _make_config(tmp_path)
+    prompts = _selected_prompts(cfg)
+
+    def flaky_factory(spec: ModelSpec) -> FlakyFakeProvider:
+        return FlakyFakeProvider(spec.model_id, spec.temperature, fail_times=1)
+
+    # retry_backoff=0.0 keeps the test fast; the single transient failure is retried instantly.
+    results = run_full(cfg, provider_factory=flaky_factory, retry_backoff=0.0)
+
+    expected = len(prompts) * len(ATTACKS) * len(cfg.defenses) * cfg.repeats
+    assert results["complete"] is True
+    assert results["error"] is None
+    assert results["query_count"] == expected
+    assert len(results["responses"]) == expected

@@ -1,0 +1,33 @@
+# Cross-model run on minimax-m2.1 (a third model that, on smoke tests, resists extraction like
+# gpt-oss). FULL matrix: 9 prompts (direct + role + in_context) x 12 attacks x 3 defenses x 2
+# repeats = ~648 calls, symmetric with the gpt-oss:120b and qwen3-coder runs, written to its own
+# dir. run_full is crash-safe.
+#   python3 -m src.experiment.run --config config.minimax.yaml
+seed: 1729
+
+models:
+  - provider: ollama
+    model_id: minimax-m2.1
+    temperature: 0.0
+
+query_budget: 20
+
+repeats: 2
+
+normalization:
+  lowercase: true
+  collapse_whitespace: true
+  strip: true
+
+prompt_types: [direct, role, in_context]
+
+defenses:
+  - none
+  - instructional
+  - output_filter
+
+output_filter_threshold: 0.5
+
+output:
+  results_dir: data/results/run-minimax
+  transcripts_dir: data/transcripts

@@ -62,7 +62,8 @@ class Theme:
     spine: str  # spines / outlines
     tick: str  # ticks
     grid: str  # grid behind the data
-    accents: list[str]  # 3 accent colors (defenses; models in the scatter)
+    accents: list[str]  # 3 accent colors (the three defenses, in the defense bars)
+    model_palette: list[str]  # distinct per-model colors for the scatter (one per model)
     cmap: str  # seaborn colormap NAME for the heatmap
     nan_cell: str  # color for NaN heatmap cells
     cell_text: str  # heatmap annotation text color
@@ -117,6 +118,9 @@ _DARK = Theme(
     tick="#8b949e",  # muted ticks
     grid="#21262d",  # faint grid behind the data
     accents=["#2dd4bf", "#f472b6", "#a3e635"],  # teal / coral-pink / lime
+    # Distinct per-model colors for the scatter (bright, well-separated hues on near-black). Six
+    # so the scatter never has to recycle a color the way a 3-accent palette did with 4 models.
+    model_palette=["#2dd4bf", "#f472b6", "#fbbf24", "#60a5fa", "#a3e635", "#fb923c"],
     cmap="mako",  # dark, perceptually-uniform colormap for the heatmap
     nan_cell="#161b22",  # NaN cells get the subtle panel tint, not white
     cell_text="#e6edf3",  # fixed light annotation text on the heatmap
@@ -139,6 +143,8 @@ _LIGHT = Theme(
     tick="#57606a",  # muted gray ticks
     grid="#eaeef2",  # very faint grid behind the data
     accents=["#4f46e5", "#db2777", "#059669"],  # indigo / rose / emerald
+    # Distinct per-model colors for the scatter (saturated, well-separated hues on white).
+    model_palette=["#0d9488", "#db2777", "#d97706", "#2563eb", "#65a30d", "#ea580c"],
     cmap="crest",  # light->teal: stays light at the low end (where most data sits), so the
     # heatmap reads light and dark annotation text stays legible. "rocket" goes near-black at the
     # low end, which dominated this low-valued data and looked dark — not the clean light look.
@@ -445,29 +451,36 @@ def _self_agreement_scatter(groups: list[dict], out_dir: str, t: Theme) -> str:
 
     fig, ax = plt.subplots(figsize=(7, 6))
 
-    # Color points by model so several models stay visually distinct (one model: one color).
-    # Accent palette cycles by index for any model count.
+    # Give each model a distinct color AND marker shape so the clouds stay separable even where
+    # they overlap. The dedicated model palette has more colors than we have models, so (unlike the
+    # old 3-accent palette) no two models ever share a color. Points are translucent and small so
+    # the per-model fit lines, drawn on top, carry the eye.
     models = sorted({m for _, _, m in pts})
-    color_for = {m: t.accents[i % len(t.accents)] for i, m in enumerate(models)}
+    markers = ["o", "s", "^", "D", "v", "P"]
+    style_for = {
+        m: (t.model_palette[i % len(t.model_palette)], markers[i % len(markers)])
+        for i, m in enumerate(models)
+    }
     for m in models:
+        color, marker = style_for[m]
         model_agreements = [a for a, _, mid in pts if mid == m]
         model_truths = [tr for _, tr, mid in pts if mid == m]
         k = len(model_agreements)
         # Reuse the verifier's Pearson r PER MODEL so the figure and aggregate tables agree.
         r = agreement_vs_truth_correlation(model_agreements, model_truths)
         ax.scatter(
-            model_agreements, model_truths, color=color_for[m],
-            label=f"{m}  (r={r:+.2f}, n={k})", alpha=0.85, edgecolors=t.bg, linewidths=0.4,
-            s=55, zorder=3,
+            model_agreements, model_truths, color=color, marker=marker,
+            label=f"{m}  (r={r:+.2f}, n={k})", alpha=0.6, edgecolors=t.bg, linewidths=0.3,
+            s=38, zorder=3,
         )
-        # Per-model dashed least-squares fit, same color, with a subtle glow. Needs >= 2 points
-        # with >= 2 distinct x-values to be a meaningful line; otherwise skip the line.
+        # Per-model dashed least-squares fit, same color, drawn ON TOP of the cloud with a glow so
+        # it reads clearly. Needs >= 2 points with >= 2 distinct x-values; otherwise skip the line.
         if k >= 2 and len(set(model_agreements)) >= 2:
             slope, intercept = np.polyfit(model_agreements, model_truths, 1)
             xline = np.linspace(min(model_agreements), max(model_agreements), 100)
-            ax.plot(xline, slope * xline + intercept, color=color_for[m],
-                    linestyle="--", linewidth=1.8, zorder=2,
-                    path_effects=_glow(t.glow_fg, linewidth=3.5, alpha=0.6))
+            ax.plot(xline, slope * xline + intercept, color=color,
+                    linestyle="--", linewidth=2.2, zorder=4,
+                    path_effects=_glow(t.glow_fg, linewidth=4.0, alpha=0.7))
 
     ax.set_xlabel("Self-agreement (pairwise Rouge-L among repeats, no ground truth)")
     ax.set_ylabel("Mean Rouge-L recall vs true prompt (ground truth)")
